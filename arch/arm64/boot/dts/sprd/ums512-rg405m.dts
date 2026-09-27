@@ -1,0 +1,784 @@
+// SPDX-License-Identifier: (GPL-2.0 OR MIT)
+/*
+ * Anbernic RG405M (Unisoc UMS512 / T618, sharkl5pro) board DTS.
+ *
+ * Derived from ums512-rg-rotate.dts (same SoC, same board family
+ * ums512_1h10). RG405M deltas vs RG Rotate, all confirmed against the
+ * stock DTB/DTBO dumps (device-extract/):
+ *   - 640x480 MIPI panel (ST7701S-class, 2 lanes), reset ap_gpio 50,
+ *     avdd+avee share ap_gpio 16
+ *   - 4 GiB DRAM (stock: reg 0xfffff000)
+ *   - GT911 touch on i2c3 @0x14, irq ap_gpio 144, reset ap_gpio 145,
+ *     vdd = PMIC vddldo1 (stock phandle 0x121 = LDO_VDDLDO1)
+ *   - gamepad: 17 buttons + Fn on GPIO (same alt-func pads as Rotate);
+ *     dual analog sticks via singleadc-joypad (ADC ch2 + amux) — driver
+ *     port pending, see docs/HARDWARE-ANALYSIS.md
+ *   - no hall sensor / swivel
+ *   - Wi-Fi wakeup gpio 32 (Rotate: 33)
+ */
+
+/dts-v1/;
+
+#include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/input/input.h>
+#include <dt-bindings/input/gpio-keys.h>
+#include <dt-bindings/clock/sprd,ums512-clk.h>
+#include <dt-bindings/mfd/sprd,sc2730-regs.h>
+#include <dt-bindings/mfd/sprd,sc2730-mask.h>
+#include "ums512.dtsi"
+#include "sc2730.dtsi"
+#include "sprd-sound-fe-be.dtsi"
+
+/ {
+	model = "Anbernic RG405M";
+	compatible = "sprd,ums512-1h10", "sprd,ums512";
+	sprd,sc-id = "ums512 1h10 1000";
+
+	aliases {
+		serial0 = &uart0;
+		serial1 = &uart1;
+	};
+
+	memory@80000000 {
+		device_type = "memory";
+		reg = <0x0 0x80000000 0x0 0xfffff000>;
+	};
+
+	chosen {
+		#address-cells = <2>;
+		#size-cells = <2>;
+		stdout-path = "serial1:115200n8";
+	};
+
+	reserved-memory {
+		#address-cells = <2>;
+		#size-cells = <2>;
+		ranges;
+
+		/*
+		 * ddrbist + sysdumpinfo: the first two pages of DRAM. u-boot
+		 * and the sysdump machinery stamp magic values here across
+		 * reboots.
+		 */
+		ddrbist-mem@80000000 {
+			reg = <0 0x80000000 0 0x1000>;
+			no-map;
+		};
+
+		sysdumpinfo-mem@80001000 {
+			reg = <0 0x80001000 0 0x1000>;
+			no-map;
+		};
+
+		/* Modem CP image + CP/AP SIPC shared memory. The CP is not
+		 * started under mainline, but stock reserves both and the
+		 * boot chain may still touch them - keep them out of the
+		 * allocator. */
+		cp-mem@89600000 {
+			reg = <0 0x89600000 0 0x4900000>;
+			no-map;
+		};
+
+		sipc-mem@8e000000 {
+			reg = <0 0x8e000000 0 0x900000>;
+			no-map;
+		};
+
+		/* Stock base DT reserves this 64MB IQ/calibration buffer but
+		 * frees it at runtime outside calibration mode. Reserved
+		 * while hunting corruption; candidate to reclaim later. */
+		iq-mem@90000000 {
+			reg = <0 0x90000000 0 0x4000000>;
+			no-map;
+		};
+
+		sml-mem@94000000 {
+			reg = <0 0x94000000 0 0x40000>;
+			no-map;
+		};
+
+		tos-mem@94040000 {
+			reg = <0 0x94040000 0 0x5fc0000>;
+			no-map;
+		};
+
+		sh-mem@9a000000 {
+			reg = <0 0x9a000000 0 0x100000>;
+			no-map;
+		};
+
+		/* u-boot console log capture (read back via pstore/ramoops
+		 * tooling); u-boot writes here unconditionally. */
+		uboot-log@9de80000 {
+			reg = <0 0x9de80000 0 0x80000>;
+			no-map;
+		};
+
+		framebuffer_region: framebuffer-region@9e000000 {
+			compatible = "framebuffer";
+			reg = <0 0x9e000000 0 (480 * 640 * 4)>;
+			iommu-addresses = <&dpu 0x9e000000 (480 * 640 * 4)>;
+			no-map;
+		};
+
+		/* Remainder of stock's logobuffer@9e000000 (0x9e4000 total);
+		 * the framebuffer node above only covers the panel-sized
+		 * slice u-boot actually scans out. */
+		logobuffer-tail@9e12c000 {
+			reg = <0 0x9e12c000 0 0x8b8000>;
+			no-map;
+		};
+
+		/* Stock base DT reserves 16MB here for u-boot sysdump; the
+		 * live tree shows it zero-sized because u-boot rewrites the
+		 * node, but the region may still be stamped by the boot
+		 * chain. Reserved while hunting corruption. */
+		sysdump-uboot@9f000000 {
+			reg = <0 0x9f000000 0 0x1000000>;
+			no-map;
+		};
+
+		/*
+		 * Secure/DRM pool. Stock declares this in a devicetree
+		 * overlay (fragment@11) rather than the base dts. The secure
+		 * world writes this region whether or not the kernel knows
+		 * about it - leaving it unreserved corrupts the page
+		 * allocator once allocations reach 0xe3800000.
+		 */
+		widevine-mem@e3800000 {
+			reg = <0 0xe3800000 0 0xc800000>;
+			no-map;
+		};
+
+		/* Camera faceid + vDSP firmware regions. High DRAM - if left
+		 * unreserved these are exactly where big allocations (page
+		 * cache on large files) start landing and getting corrupted. */
+		faceid-mem@fd270000 {
+			reg = <0 0xfd270000 0 0x500000>;
+			no-map;
+		};
+
+		vdsp-mem@fd770000 {
+			reg = <0 0xfd770000 0 0x2800000>;
+			no-map;
+		};
+
+		rebootescrow@fff70000 {
+			reg = <0 0xfff70000 0 0x10000>;
+			no-map;
+		};
+
+		/* Persistent kernel console/oops log, same layout as stock so
+		 * u-boot's uboot_log dumper keeps working. No no-map: ramoops
+		 * needs to map it. */
+		ramoops@fff80000 {
+			compatible = "ramoops";
+			reg = <0 0xfff80000 0 0x40000>;
+			record-size = <0x8000>;
+			console-size = <0x8000>;
+			pmsg-size = <0x8000>;
+		};
+
+		linux,cma {
+			compatible = "shared-dma-pool";
+			size = <0x0 0x8000000>;
+			reusable;
+			linux,cma-default;
+		};
+	};
+
+	backlight: backlight {
+		compatible = "pwm-backlight";
+		pwms = <&pwm 2 40000>;
+		max-brightness = <4095>;
+		default-brightness-level = <2650>;
+	};
+
+	/*
+	 * RG405M panel power: the stock u-boot DT shows avdd and avee share
+	 * ap_gpio 16 (sprd,lcd-avdd-gpio = sprd,lcd-avee-gpio = <0x10>).
+	 */
+	lcd_avdd: regulator-lcd-avdd {
+		compatible = "regulator-fixed";
+		regulator-name = "lcd-avdd";
+		gpio = <&ap_gpio 16 GPIO_ACTIVE_HIGH>;
+		enable-active-high;
+		regulator-boot-on;
+	};
+
+	/*
+	 * Gamepad buttons. Pad mapping decoded from the stock DTBO
+	 * singleadc-joypad node + the u-boot gpio_fun_pin[] table
+	 * (src/u-boot board/spreadtrum/ums512_1h10/gpio_pin.c):
+	 *   dedicated GPIO pads (work as-is): 86, 87, 88, 116
+	 *   alt-func pads needing func4 muxing: the RF*/KEYIN*/SPI2*/
+	 *   MEMS_MIC*/IIS3* ones below.
+	 * The two analog sticks live in the stock singleadc-joypad node
+	 * (ADC ch2 behind a 4-way gpio amux); their driver port is still
+	 * pending - tracked in docs/HARDWARE-ANALYSIS.md.
+	 */
+	gamepad_keys: gpio-keys-gamepad {
+		compatible = "gpio-keys";
+		pinctrl-names = "default";
+		pinctrl-0 = <&joypad_pins_func &joypad_pins_misc>;
+
+		btn-dpad-up {
+			label = "DPAD-UP";
+			linux,code = <BTN_DPAD_UP>;
+			gpios = <&ap_gpio 26 GPIO_ACTIVE_LOW>;	/* RFCTL7 */
+			debounce-interval = <2>;
+		};
+		btn-dpad-down {
+			label = "DPAD-DOWN";
+			linux,code = <BTN_DPAD_DOWN>;
+			gpios = <&ap_gpio 25 GPIO_ACTIVE_LOW>;	/* RFCTL6 */
+			debounce-interval = <2>;
+		};
+		btn-dpad-left {
+			label = "DPAD-LEFT";
+			linux,code = <BTN_DPAD_LEFT>;
+			gpios = <&ap_gpio 97 GPIO_ACTIVE_LOW>;	/* MEMS_MIC_DATA1 */
+			debounce-interval = <2>;
+		};
+		btn-dpad-right {
+			label = "DPAD-RIGHT";
+			linux,code = <BTN_DPAD_RIGHT>;
+			gpios = <&ap_gpio 86 GPIO_ACTIVE_LOW>;	/* GPIO86 */
+			debounce-interval = <2>;
+		};
+		btn-a {
+			label = "BTN-A";
+			linux,code = <BTN_SOUTH>;
+			gpios = <&ap_gpio 116 GPIO_ACTIVE_LOW>;	/* GPIO116 */
+			debounce-interval = <2>;
+		};
+		btn-b {
+			label = "BTN-B";
+			linux,code = <BTN_EAST>;
+			gpios = <&ap_gpio 112 GPIO_ACTIVE_LOW>;	/* IIS3DI */
+			debounce-interval = <2>;
+		};
+		btn-x {
+			label = "BTN-X";
+			linux,code = <BTN_NORTH>;
+			gpios = <&ap_gpio 88 GPIO_ACTIVE_LOW>;	/* GPIO88 */
+			debounce-interval = <2>;
+		};
+		btn-y {
+			label = "BTN-Y";
+			linux,code = <BTN_WEST>;
+			gpios = <&ap_gpio 113 GPIO_ACTIVE_LOW>;	/* IIS3DO */
+			debounce-interval = <2>;
+		};
+		btn-tl {
+			label = "BTN-TL";
+			linux,code = <BTN_TL>;
+			gpios = <&ap_gpio 14 GPIO_ACTIVE_LOW>;	/* RFSEN1 */
+			debounce-interval = <2>;
+		};
+		btn-tr {
+			label = "BTN-TR";
+			linux,code = <BTN_TR>;
+			gpios = <&ap_gpio 1 GPIO_ACTIVE_LOW>;	/* RFSDA0 */
+			debounce-interval = <2>;
+		};
+		btn-tl2 {
+			label = "BTN-TL2";
+			linux,code = <BTN_TL2>;
+			gpios = <&ap_gpio 3 GPIO_ACTIVE_LOW>;	/* RFSEN0 */
+			debounce-interval = <2>;
+		};
+		btn-tr2 {
+			label = "BTN-TR2";
+			linux,code = <BTN_TR2>;
+			gpios = <&ap_gpio 2 GPIO_ACTIVE_LOW>;	/* RFSCK0 */
+			debounce-interval = <2>;
+		};
+		btn-select {
+			label = "BTN-SELECT";
+			linux,code = <BTN_SELECT>;
+			gpios = <&ap_gpio 55 GPIO_ACTIVE_LOW>;	/* SPI2_CLK */
+			debounce-interval = <2>;
+		};
+		btn-start {
+			label = "BTN-START";
+			linux,code = <BTN_START>;
+			gpios = <&ap_gpio 87 GPIO_ACTIVE_LOW>;	/* GPIO87 */
+			debounce-interval = <2>;
+		};
+		btn-fn {
+			label = "BTN-FN";
+			linux,code = <BTN_MODE>;
+			gpios = <&ap_gpio 126 GPIO_ACTIVE_LOW>;	/* KEYIN2 */
+			debounce-interval = <2>;
+		};
+		btn-thumbl {
+			label = "BTN-THUMBL";
+			linux,code = <BTN_THUMBL>;
+			gpios = <&ap_gpio 20 GPIO_ACTIVE_LOW>;	/* RFCTL1 */
+			debounce-interval = <2>;
+		};
+		btn-thumbr {
+			label = "BTN-THUMBR";
+			linux,code = <BTN_THUMBR>;
+			gpios = <&ap_gpio 23 GPIO_ACTIVE_LOW>;	/* RFCTL4 */
+			debounce-interval = <2>;
+		};
+		btn-back {
+			label = "BTN-BACK";
+			linux,code = <BTN_SELECT>;
+			gpios = <&ap_gpio 124 GPIO_ACTIVE_LOW>;	/* KEYIN0 */
+			debounce-interval = <2>;
+		};
+	};
+
+	sys_keys: gpio-keys-system {
+		compatible = "gpio-keys";
+		pinctrl-names = "default";
+		pinctrl-0 = <&volup_pin_func &volup_pin_misc>;
+
+		key-volumedown {
+			label = "Volume Down Key";
+			linux,code = <KEY_VOLUMEDOWN>;
+			gpios = <&pmic_eic 4 GPIO_ACTIVE_HIGH>;
+			debounce-interval = <2>;
+			wakeup-source;
+		};
+		key-volumeup {
+			label = "Volume Up Key";
+			linux,code = <KEY_VOLUMEUP>;
+			gpios = <&ap_gpio 30 GPIO_ACTIVE_LOW>;	/* RFCTL11 */
+			debounce-interval = <2>;
+			wakeup-source;
+		};
+		key-power {
+			label = "Power Key";
+			linux,code = <KEY_POWER>;
+			gpios = <&pmic_eic 1 GPIO_ACTIVE_LOW>;
+			debounce-interval = <2>;
+			wakeup-source;
+		};
+	};
+
+	bat: battery {
+		compatible = "simple-battery";
+		charge-full-design-microamp-hours = <4200000>;
+		charge-term-current-microamp = <120000>;
+		constant-charge-voltage-max-microvolt = <4300000>;
+		factory-internal-resistance-micro-ohms = <130000>;
+		voltage-min-design-microvolt = <3410000>;
+		operating-range-celsius = <0 60>;
+		ocv-capacity-celsius = <25>;
+		ocv-capacity-table-0 =
+			<4292000 100>, <4184000 95>, <4118000 90>,
+			<4046000 85>, <3989000 80>, <3934000 75>,
+			<3881000 70>, <3821000 65>, <3775000 60>,
+			<3729000 55>, <3685000 50>, <3656000 45>,
+			<3639000 40>, <3625000 35>, <3608000 30>,
+			<3589000 25>, <3563000 20>, <3533000 15>,
+			<3493000 10>, <3448000 5>, <3400000 0>;
+		voltage-temp-table =
+			<1095000 800>, <986000 850>, <878000 900>, <775000 950>,
+			<678000 1000>, <590000 1050>, <510000 1100>, <440000 1150>,
+			<378000 1200>, <324000 1250>, <278000 1300>, <238000 1350>,
+			<204000 1400>, <175000 1450>, <150000 1500>, <129000 1550>,
+			<111000 1600>, <96000 1650>;
+	};
+};
+
+&led1 {
+	linux,default-trigger = "default-on";
+};
+
+&sc2730_fgu {
+	status = "okay";
+	monitored-battery = <&bat>;
+	power-supplies = <&charger>;
+	sprd,calib-resistance-micro-ohms = <10000>;
+};
+
+&sc2730_codec {
+	status = "okay";
+	sprd,syscon-pmu-apb = <&pmu_apb_regs>;
+	hp-use-inter-pa = <1>;
+	fixed-sample-rate = <48000 48000 48000>;
+	digital-codec = <&sprd_audio_codec_dig>;
+};
+
+&audcp_boot {
+	status = "okay";
+};
+
+&sound_vbc_v4_sprd_codec {
+	status = "okay";
+	sprd-audio-card,routing =
+		"Ext Spk", "HP Pin",
+		"Ext Spk1", "HP Pin";
+	sprd,spk-ext-pa-info = <0 0 4 0>;
+	sprd,spk-ext-pa-gpio = <&ap_gpio 9 1>;
+};
+
+&pinctrl {
+	i2c4_pin_func: i2c4-pin-func {
+		pins = "UMS512_SIMCLK2", "UMS512_SIMDA2";
+		function = "func2";
+	};
+
+	i2c4_pin_misc: i2c4-pin-misc {
+		pins = "UMS512_SIMCLK2_MISC", "UMS512_SIMDA2_MISC";
+		/* 4700 => WPUS|WPU, matching the u-boot pinmap (strong pull for
+		 * the open-drain i2c lines). */
+		bias-pull-up = <4700>;
+	};
+
+	/*
+	 * SDA3/SCL3 carry the TOP-DVFS engine's autonomous I2C channel to
+	 * the FAN53555 (DCDC_CPU1); func1 like every other real I2C pad.
+	 */
+	dvfs_i2c_pin_func: dvfs-i2c-pin-func {
+		pins = "UMS512_SDA3", "UMS512_SCL3";
+		function = "func1";
+	};
+
+	/*
+	 * Gamepad buttons on alt-func pads (RF*, SPI2_CLK, MEMS_MIC_DATA1,
+	 * IIS3D*, KEYIN*). Pad<->line mapping from the u-boot gpio_fun_pin[]
+	 * table; func4 muxing + pull-ups, same mechanism as RG Rotate.
+	 */
+	joypad_pins_func: joypad-pins-func {
+		pins = "UMS512_RFSDA0", "UMS512_RFSCK0", "UMS512_RFSEN0",
+		       "UMS512_RFSEN1", "UMS512_RFCTL1", "UMS512_RFCTL4",
+		       "UMS512_RFCTL6", "UMS512_RFCTL7", "UMS512_SPI2_CLK",
+		       "UMS512_MEMS_MIC_DATA1", "UMS512_IIS3DI",
+		       "UMS512_IIS3DO", "UMS512_KEYIN0", "UMS512_KEYIN2";
+		function = "func4";
+	};
+
+	joypad_pins_misc: joypad-pins-misc {
+		pins = "UMS512_RFSDA0_MISC", "UMS512_RFSCK0_MISC",
+		       "UMS512_RFSEN0_MISC", "UMS512_RFSEN1_MISC",
+		       "UMS512_RFCTL1_MISC", "UMS512_RFCTL4_MISC",
+		       "UMS512_RFCTL6_MISC", "UMS512_RFCTL7_MISC",
+		       "UMS512_SPI2_CLK_MISC", "UMS512_MEMS_MIC_DATA1_MISC",
+		       "UMS512_IIS3DI_MISC", "UMS512_IIS3DO_MISC",
+		       "UMS512_KEYIN0_MISC", "UMS512_KEYIN2_MISC";
+		input-enable;
+		bias-pull-up = <20000>;
+	};
+
+	volup_pin_func: volup-pin-func {
+		pins = "UMS512_RFCTL11";
+		function = "func4";
+	};
+
+	volup_pin_misc: volup-pin-misc {
+		pins = "UMS512_RFCTL11_MISC";
+		input-enable;
+		bias-pull-up = <20000>;
+	};
+};
+
+&cpudvfs_dev {
+	status = "okay";
+	pinctrl-names = "default";
+	pinctrl-0 = <&dvfs_i2c_pin_func>;
+};
+
+&iommu_disp {
+	status = "okay";
+};
+
+&disp {
+	status = "okay";
+};
+
+&dpu {
+	status = "okay";
+	memory-region = <&framebuffer_region>;
+	reset-syscon = <&ap_ahb_regs 0x04 0x02>;
+};
+
+&pwm {
+	status = "okay";
+};
+
+&dsi {
+	status = "okay";
+	reset-syscon = <&ap_ahb_regs 0x04 0x01>;
+
+	#address-cells = <1>;
+	#size-cells = <0>;
+
+	panel@0 {
+		compatible = "rocknix,generic-dsi";
+		reg = <0>;
+		reset-gpios = <&ap_gpio 50 GPIO_ACTIVE_LOW>;
+		backlight = <&backlight>;
+		vdd-supply = <&lcd_avdd>;
+		iovcc-supply = <&lcd_avdd>;
+
+		/*
+		 * 640x480 (portrait scanout 480x640) 2-lane MIPI DSI panel,
+		 * ST7701S-class (FF 77 01 00 00 page-select commands).
+		 * Converted from the stock DTBO's sprd,initial-command blob
+		 * by tools/panel-dtbo-to-generic.py — see
+		 * docs/rg405m-panel-desc.txt.
+		 */
+		panel_description =
+			"G lanes=2 format=rgb888 size=109,62 flags=3 hs_rate=368000000 lp_rate=20000000 delays=5,50,120,100,50",
+			"M clock=25600 horizontal=480,54,50,50 vertical=640,10,13,10 default=1",
+			"I dcs=ff data=77 01 00 00 13",
+			"I dcs=ef data=08",
+			"I dcs=ff data=77 01 00 00 10",
+			"I dcs=c0 data=4f 03",
+			"I dcs=c1 data=0c 02",
+			"I dcs=c2 data=10 06",
+			"I dcs=c7 data=04",
+			"I dcs=cc data=38",
+			"I dcs=b0 data=40 16 1d 0e 12 06 0c 0a 09 25 00 03 00 3f 3f 1c",
+			"I dcs=b1 data=40 16 1e 0e 11 06 0c 08 09 26 00 15 00 3f 3f 1c",
+			"I dcs=ff data=77 01 00 00 11",
+			"I dcs=b0 data=4d",
+			"I dcs=b1 data=35",
+			"I dcs=b2 data=07",
+			"I dcs=b3 data=80",
+			"I dcs=b5 data=47",
+			"I dcs=b7 data=85",
+			"I dcs=b8 data=20",
+			"I dcs=b9 data=10",
+			"I dcs=bc data=03",
+			"I dcs=c0 data=89",
+			"I dcs=c1 data=78",
+			"I dcs=c2 data=78",
+			"I dcs=d0 data=88",
+			"I dcs=e0 data=00 00 02",
+			"I dcs=e1 data=04 00 00 00 05 00 00 00 00 20 20",
+			"I dcs=e2 data=00 00 00 00 00 00 00 00 00 00 00 00 00",
+			"I dcs=e3 data=00 00 33 00",
+			"I dcs=e4 data=22 00",
+			"I dcs=e5 data=04 5c a0 a0 06 5c a0 a0 00 00 00 00 00 00 00 00",
+			"I dcs=e6 data=00 00 33 00",
+			"I dcs=e7 data=22 00",
+			"I dcs=e8 data=05 5c a0 a0 07 5c a0 a0 00 00 00 00 00 00 00 00",
+			"I dcs=eb data=02 00 40 40 00 00 00",
+			"I dcs=ec data=00 00",
+			"I dcs=ed data=fa 45 0b ff ff ff ff ff ff ff ff ff ff b0 54 af",
+			"I dcs=ef data=08 08 08 45 3f 54",
+			"I dcs=ff data=77 01 00 00 00",
+			"I dcs=36 data=17",
+			"I dcs=3a data=77",
+			"I dcs=11",
+			"I dcs=29";
+
+		port {
+			panel_in: endpoint {
+				remote-endpoint = <&dsi_out>;
+			};
+		};
+	};
+};
+
+&dsi_out {
+	remote-endpoint = <&panel_in>;
+};
+
+&hsphy {
+	status = "okay";
+	phy-supply = <&vddusb33>;
+};
+
+&usb {
+	status = "okay";
+	dr_mode = "otg";
+	usb-role-switch;
+	role-switch-default-mode = "peripheral";
+
+	port {
+		usb_hs_ep: endpoint {
+			remote-endpoint = <&tcpc_hs_ep>;
+		};
+	};
+};
+
+&pmic_typec_pd {
+	status = "okay";
+	vbus-supply = <&usb_otg_vbus>;
+
+	connector {
+		compatible = "usb-c-connector";
+		label = "USB-C";
+		power-role = "dual";
+		data-role = "dual";
+		try-power-role = "sink";
+		pd-disable;
+		typec-power-opmode = "default";
+
+		port {
+			tcpc_hs_ep: endpoint {
+				remote-endpoint = <&usb_hs_ep>;
+			};
+		};
+	};
+};
+
+&gpu {
+	mali-supply = <&vddgpu>;
+	status = "okay";
+};
+
+/*
+ * Stock enables the hw-i2c master at 1MHz (overlay fragment@12 on aon_i2c0).
+ * The big cluster's DVFS voltage path runs through it.
+ */
+&aon_i2c0 {
+	status = "okay";
+	clock-frequency = <1000000>;
+};
+
+/*
+ * GT911 touchscreen on i2c3 @0x14 (stock: i2c@600000 / touchscreen@14).
+ * Same chip and gpios as RG Rotate (irq 144 / reset 145, ACTIVE_HIGH —
+ * the mainline goodix driver writes literal levels through the reset/INT
+ * handshake that selects the 0x14 address, so ACTIVE_LOW inverts it and
+ * every transaction fails with -EIO).
+ * Touch vdd is PMIC LDO1 (stock phandle 0x121 = LDO_VDDLDO1, 3.3 V).
+ * Scanout is portrait 480x640 while the handheld is landscape; start with
+ * both axes inverted like the Rotate and verify with evtest on device.
+ */
+&i2c3 {
+	status = "okay";
+	clock-frequency = <400000>;
+	#address-cells = <1>;
+	#size-cells = <0>;
+
+	touchscreen@14 {
+		compatible = "goodix,gt911";
+		reg = <0x14>;
+		AVDD28-supply = <&vddldo1>;
+		VDDIO-supply = <&vddldo1>;
+		irq-gpios = <&ap_gpio 144 GPIO_ACTIVE_HIGH>;
+		reset-gpios = <&ap_gpio 145 GPIO_ACTIVE_HIGH>;
+		touchscreen-size-x = <480>;
+		touchscreen-size-y = <640>;
+		touchscreen-inverted-x;
+		touchscreen-inverted-y;
+	};
+};
+
+&i2c4 {
+	status = "okay";
+	clock-frequency = <400000>;
+	pinctrl-names = "default";
+	pinctrl-0 = <&i2c4_pin_func &i2c4_pin_misc>;
+	#address-cells = <1>;
+	#size-cells = <0>;
+
+	charger: charger@6a {
+		compatible = "awinic,aw32257";
+		reg = <0x6a>;
+		monitored-battery = <&bat>;
+		fuel-gauge = <&sc2730_fgu>;
+		ti,current-limit = <1800>;
+		ti,weak-battery-voltage = <3400>;
+		ti,battery-regulation-voltage = <4300>;
+		/*
+		 * ~0.43C of the 4200 mAh pack, deliberately below stock's
+		 * 2000 mA until proper JEITA thermal limiting exists.
+		 */
+		ti,charge-current = <1240>;
+		ti,termination-current = <200>;
+		ti,resistor-sense = <33>;
+
+		usb_otg_vbus: usb-otg-vbus {
+			regulator-name = "usb-otg-vbus";
+		};
+	};
+};
+
+&sdio0 {
+	status = "okay";
+	vmmc-supply = <&vddsdcore>;
+	vqmmc-supply = <&vddsdio>;
+	cd-gpios = <&eic_sync 19 GPIO_ACTIVE_LOW>;
+	bus-width = <4>;
+	sprd,phy-delay-sd-uhs-sdr104 = <0x7f 0x73 0x72 0x72>;
+	sprd,phy-delay-sd-uhs-sdr50 = <0x6e 0x7f 0x01 0x01>;
+	sprd,phy-delay-sd-highspeed = <0x7f 0x1a 0x9a 0x9a>;
+	sprd,phy-delay-legacy = <0x7f 0x1a 0x9a 0x9a>;
+	sd-uhs-sdr104;
+	sd-uhs-sdr50;
+	no-sdio;
+	no-mmc;
+};
+
+&sdio3 {
+	status = "okay";
+	vmmc-supply = <&vddemmccore>;
+	bus-width = <8>;
+	voltage-ranges = <3000 3000>;
+	non-removable;
+	cap-mmc-hw-reset;
+	sprd,phy-delay-mmc-hs400es = <0x40 0x7f 0x2d 0x2d>;
+	sprd,phy-delay-mmc-hs400 = <0x3f 0xdf 0x2f 0x2f>;
+	sprd,phy-delay-mmc-hs200 = <0x7f 0xde 0xd4 0xd4>;
+	sprd,phy-delay-mmc-ddr52 = <0x3e 0x37 0x24 0x24>;
+	sprd,phy-delay-mmc-highspeed = <0x60 0xb7 0x34 0x34>;
+	mmc-hs400-enhanced-strobe;
+	mmc-hs400-1_8v;
+	mmc-hs200-1_8v;
+	mmc-ddr-1_8v;
+	no-sdio;
+	no-sd;
+};
+
+&sdio1 {
+	status = "okay";
+	bus-width = <4>;
+	sprd,phy-delay-sd-uhs-sdr104 = <0x7f 0x76 0x69 0x69>;
+	sprd,phy-delay-sd-uhs-sdr50 = <0x7f 0xf7 0xf5 0xf5>;
+	sd-uhs-sdr104;
+	sd-uhs-sdr50;
+	no-sd;
+	no-mmc;
+};
+
+/ {
+	sprd_marlin3: sprd-marlin3 {
+		compatible = "unisoc,marlin3lite_sdio";
+		enable-gpios = <&ap_gpio 143 GPIO_ACTIVE_LOW>;
+		reset-gpios = <&ap_gpio 95 GPIO_ACTIVE_LOW>;
+		m2-wakeup-ap-gpios = <&ap_gpio 32 GPIO_ACTIVE_LOW>;
+		m2-to-ap-irq-gpios = <&ap_gpio 94 GPIO_ACTIVE_LOW>;
+		adma-tx;
+		adma-rx;
+
+		clock-names = "clk_32k", "source", "enable";
+		clocks = <&aon_clk CLK_AUX0>, <&ext_32k>,
+			 <&aonapb_gate CLK_AUX0_EB>;
+
+		extcon = <&sdio1>;
+		sdhci-name = <&sdio1>;
+
+		sprd,btwf-file-name = "/lib/firmware/wcnmodem.bin";
+		sprd,gnss-file-name = "/lib/firmware/gnssmodem.bin";
+
+		avdd12-supply = <&vddwcn>;
+		avdd33-supply = <&vddwifipa>;
+		dcxo18-supply = <&vddsim2>;
+
+		avdd12-parent-bound-chip = <REG_ANA_SLP_DCDC_PD_CTRL MASK_ANA_SLP_DCDCGEN1_PD_EN 0x0 MASK_ANA_SLP_DCDCGEN1_PD_EN>;
+		avdd12-bound-wbreq = <REG_ANA_LDO_XTL_EN10 MASK_ANA_LDO_VDDWCN_EXT_XTL3_EN 0x0 MASK_ANA_LDO_VDDWCN_EXT_XTL3_EN>;
+		avdd33-bound-wbreq = <REG_ANA_LDO_XTL_EN11 MASK_ANA_LDO_VDDWIFIPA_EXT_XTL3_EN 0x0 MASK_ANA_LDO_VDDWIFIPA_EXT_XTL3_EN>;
+
+		wlan {
+			compatible = "sprd,sc2355-sdio-wifi";
+			nvmem-cells = <&uid_start>, <&uid_end>;
+			nvmem-cell-names = "uid-start", "uid-end";
+		};
+		sprd-mtty {
+			compatible = "sprd,mtty";
+			nvmem-cells = <&uid_start>, <&uid_end>;
+			nvmem-cell-names = "uid-start", "uid-end";
+		};
+	};
+};
