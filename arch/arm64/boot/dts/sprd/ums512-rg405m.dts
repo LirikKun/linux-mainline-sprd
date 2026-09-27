@@ -211,8 +211,8 @@
 	 * singleadc-joypad node + the u-boot gpio_fun_pin[] table
 	 * (src/u-boot board/spreadtrum/ums512_1h10/gpio_pin.c):
 	 *   dedicated GPIO pads (work as-is): 86, 87, 88, 116
-	 *   alt-func pads needing func4 muxing: the RF*/KEYIN*/SPI2*/
-	 *   MEMS_MIC*/IIS3* ones below.
+	 *   alt-func pads needing func4 muxing: the RF, KEYIN, SPI2,
+	 *   MEMS_MIC and IIS3 ones below.
 	 * The two analog sticks live in the stock singleadc-joypad node
 	 * (ADC ch2 behind a 4-way gpio amux); their driver port is still
 	 * pending - tracked in docs/HARDWARE-ANALYSIS.md.
