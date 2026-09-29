@@ -77,6 +77,7 @@ struct generic_panel {
 
     enum drm_panel_orientation orientation;
     bool prepared;
+    bool complete_init;
 };
 
 
@@ -445,15 +446,21 @@ static int generic_panel_unprepare(struct drm_panel *panel)
     if (ret < 0)
         dev_err(ctx->dev, "failed to set display off: %d\n", ret);
 
+    if (ctx->complete_init)
+        msleep(10);
     ret = mipi_dsi_dcs_enter_sleep_mode(dsi);
     if (ret < 0) {
         dev_err(ctx->dev, "failed to enter sleep mode: %d\n", ret);
         return ret;
     }
 
+    if (ctx->complete_init)
+        msleep(120);
     if (ctx->enable_gpio) { gpiod_set_value_cansleep(ctx->enable_gpio, 0); }
     gpiod_set_value_cansleep(ctx->reset_gpio, 1);
 
+    if (ctx->complete_init)
+        msleep(20);
     regulator_disable(ctx->iovcc);
     regulator_disable(ctx->vdd);
 
@@ -520,6 +527,14 @@ static int generic_panel_prepare(struct drm_panel *panel)
     if (ret < 0) {
         dev_err(ctx->dev, "Panel init sequence failed: %d\n", ret);
         goto disable_iovcc;
+    }
+
+    /* RG405M stock sequence already includes sleep-out and display-on,
+     * with its original delays, while the DSI host is in command mode. */
+    if (ctx->complete_init) {
+        ctx->prepared = true;
+        dev_info(ctx->dev, "RG405M stock panel init sequence completed\n");
+        return 0;
     }
 
     /*
@@ -682,6 +697,9 @@ static int generic_panel_enable(struct drm_panel *panel)
     static const u8 display_on[] = { MIPI_DCS_SET_DISPLAY_ON };
     int ret;
 
+    if (ctx->complete_init)
+        return 0;
+
     ret = mipi_dsi_dcs_write_buffer(dsi, display_on, sizeof(display_on));
     if (ret < 0) {
         dev_err(ctx->dev, "Failed to set display on: %d\n", ret);
@@ -747,6 +765,7 @@ static int generic_panel_probe(struct mipi_dsi_device *dsi)
     mipi_dsi_set_drvdata(dsi, ctx);
 
     ctx->dev = dev;
+    ctx->complete_init = of_device_is_compatible(dev->of_node, "anbernic,rg405m-panel");
 
     // Some defaults
     dsi->lanes = 1;
@@ -830,6 +849,7 @@ static void generic_panel_remove(struct mipi_dsi_device *dsi)
 
 static const struct of_device_id generic_panel_of_match[] = {
     { .compatible = "rocknix,generic-dsi" },
+    { .compatible = "anbernic,rg405m-panel" },
     { /* sentinel */ }
 };
 MODULE_DEVICE_TABLE(of, generic_panel_of_match);

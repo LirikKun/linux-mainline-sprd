@@ -187,24 +187,20 @@
 		};
 	};
 
+	/* v7-proven backlight: stock PWM2, 40000 ns period, 64/255 default. */
 	backlight: backlight {
 		compatible = "pwm-backlight";
 		pwms = <&pwm 2 40000>;
-		max-brightness = <4095>;
-		default-brightness-level = <2650>;
+		brightness-levels = <0 16 32 48 64 80 96 112 128 144 160 176 192 208 224 240 255>;
+		default-brightness-level = <4>;
 	};
 
 	/*
-	 * RG405M panel power: the stock u-boot DT shows avdd and avee share
-	 * ap_gpio 16 (sprd,lcd-avdd-gpio = sprd,lcd-avee-gpio = <0x10>).
+	 * RG405M panel power: v7-proven — the stock DT declares NO panel
+	 * supply/GPIO (avdd/avee ride an always-on PMIC LDO). The panel keeps
+	 * the bootloader's power state; we must not claim ap_gpio 16 here or
+	 * risk toggling a rail the panel already depends on. (Research §12.)
 	 */
-	lcd_avdd: regulator-lcd-avdd {
-		compatible = "regulator-fixed";
-		regulator-name = "lcd-avdd";
-		gpio = <&ap_gpio 16 GPIO_ACTIVE_HIGH>;
-		enable-active-high;
-		regulator-boot-on;
-	};
 
 	/*
 	 * Gamepad buttons. Pad mapping decoded from the stock DTBO
@@ -484,8 +480,30 @@
 	pinctrl-0 = <&dvfs_i2c_pin_func>;
 };
 
+/*
+ * Display: v7-proven configuration (build/v7/ums512-rg405m-diag.dts, pipeline
+ * "rg405m-pixel-clock-v6" — panel lit on hardware). Deltas vs the earlier
+ * in-house version, all of them from the hardware-proven v7 tree:
+ *   - iommu_disp gets the DISPC AP AHB gate clock explicitly (register access
+ *     shares it; without it a probe-time MMIO can wedge the bus → dead console)
+ *   - dpu pins CLK_DISPC0_DPI to pll2/128 MHz ÷ 5 = 25.6 MHz: boot firmware
+ *     leaves DPHY selector 5, which is absent from Linux's parent table
+ *   - panel uses compatible "anbernic,rg405m-panel" → the patched
+ *     panel-generic-dsi runs the stock init sequence verbatim (it already
+ *     contains sleep-out/display-on with vendor delays) and skips its own
+ *   - seq=… wait=… payloads with the ORIGINAL per-command waits (0x11 → 200 ms,
+ *     0x29 → 10 ms), regenerated from the stock sprd,initial-command blob by
+ *     build/v7/prepare_display.py; delays=5,50,120,10,10
+ *   - rotation = <90>: physical panel is portrait 480x640, enclosure landscape
+ *     (u-boot banner renders portrait for the same reason)
+ *   - no vdd/iovcc supplies: stock DT declares none (panel is powered from an
+ *     always-on rail; bootloader state must be preserved)
+ */
 &iommu_disp {
 	status = "okay";
+	/* Register access shares the DPU AP AHB gate; do not rely on U-Boot
+	 * or the as-yet-unloaded display driver to have enabled it. */
+	clocks = <&apahb_gate CLK_DISPC_EB>;
 };
 
 &disp {
@@ -496,6 +514,11 @@
 	status = "okay";
 	memory-region = <&framebuffer_region>;
 	reset-syscon = <&ap_ahb_regs 0x04 0x02>;
+	/* Boot firmware left DPHY selector 5, absent from Linux's parent table.
+	 * Use the stock panel's 128 MHz / 5 = 25.6 MHz path explicitly. */
+	assigned-clocks = <&ap_clk CLK_DISPC0_DPI>;
+	assigned-clock-parents = <&pll2 CLK_TWPLL_128M>;
+	assigned-clock-rates = <25600000>;
 };
 
 &pwm {
@@ -510,65 +533,57 @@
 	#size-cells = <0>;
 
 	panel@0 {
-		compatible = "rocknix,generic-dsi";
+		compatible = "anbernic,rg405m-panel";
 		reg = <0>;
 		reset-gpios = <&ap_gpio 50 GPIO_ACTIVE_LOW>;
+		/* Physical panel is portrait 480x640; enclosure is landscape. */
+		rotation = <90>;
 		backlight = <&backlight>;
-		vdd-supply = <&lcd_avdd>;
-		iovcc-supply = <&lcd_avdd>;
-
-		/*
-		 * 640x480 (portrait scanout 480x640) 2-lane MIPI DSI panel,
-		 * ST7701S-class (FF 77 01 00 00 page-select commands).
-		 * Converted from the stock DTBO's sprd,initial-command blob
-		 * by tools/panel-dtbo-to-generic.py — see
-		 * docs/rg405m-panel-desc.txt.
-		 */
 		panel_description =
-			"G lanes=2 format=rgb888 size=109,62 flags=3 hs_rate=368000000 lp_rate=20000000 delays=5,50,120,100,50",
+			"G lanes=2 format=rgb888 size=109,62 flags=3 hs_rate=368000000 lp_rate=20000000 delays=5,50,120,10,10",
 			"M clock=25600 horizontal=480,54,50,50 vertical=640,10,13,10 default=1",
-			"I dcs=ff data=77 01 00 00 13",
-			"I dcs=ef data=08",
-			"I dcs=ff data=77 01 00 00 10",
-			"I dcs=c0 data=4f 03",
-			"I dcs=c1 data=0c 02",
-			"I dcs=c2 data=10 06",
-			"I dcs=c7 data=04",
-			"I dcs=cc data=38",
-			"I dcs=b0 data=40 16 1d 0e 12 06 0c 0a 09 25 00 03 00 3f 3f 1c",
-			"I dcs=b1 data=40 16 1e 0e 11 06 0c 08 09 26 00 15 00 3f 3f 1c",
-			"I dcs=ff data=77 01 00 00 11",
-			"I dcs=b0 data=4d",
-			"I dcs=b1 data=35",
-			"I dcs=b2 data=07",
-			"I dcs=b3 data=80",
-			"I dcs=b5 data=47",
-			"I dcs=b7 data=85",
-			"I dcs=b8 data=20",
-			"I dcs=b9 data=10",
-			"I dcs=bc data=03",
-			"I dcs=c0 data=89",
-			"I dcs=c1 data=78",
-			"I dcs=c2 data=78",
-			"I dcs=d0 data=88",
-			"I dcs=e0 data=00 00 02",
-			"I dcs=e1 data=04 00 00 00 05 00 00 00 00 20 20",
-			"I dcs=e2 data=00 00 00 00 00 00 00 00 00 00 00 00 00",
-			"I dcs=e3 data=00 00 33 00",
-			"I dcs=e4 data=22 00",
-			"I dcs=e5 data=04 5c a0 a0 06 5c a0 a0 00 00 00 00 00 00 00 00",
-			"I dcs=e6 data=00 00 33 00",
-			"I dcs=e7 data=22 00",
-			"I dcs=e8 data=05 5c a0 a0 07 5c a0 a0 00 00 00 00 00 00 00 00",
-			"I dcs=eb data=02 00 40 40 00 00 00",
-			"I dcs=ec data=00 00",
-			"I dcs=ed data=fa 45 0b ff ff ff ff ff ff ff ff ff ff b0 54 af",
-			"I dcs=ef data=08 08 08 45 3f 54",
-			"I dcs=ff data=77 01 00 00 00",
-			"I dcs=36 data=17",
-			"I dcs=3a data=77",
-			"I dcs=11",
-			"I dcs=29";
+			"I seq=ff7701000013 wait=0",
+			"I seq=ef08 wait=0",
+			"I seq=ff7701000010 wait=0",
+			"I seq=c04f03 wait=0",
+			"I seq=c10c02 wait=0",
+			"I seq=c21006 wait=0",
+			"I seq=c704 wait=0",
+			"I seq=cc38 wait=0",
+			"I seq=b040161d0e12060c0a09250003003f3f1c wait=0",
+			"I seq=b140161e0e11060c0809260015003f3f1c wait=0",
+			"I seq=ff7701000011 wait=0",
+			"I seq=b04d wait=0",
+			"I seq=b135 wait=0",
+			"I seq=b207 wait=0",
+			"I seq=b380 wait=0",
+			"I seq=b547 wait=0",
+			"I seq=b785 wait=0",
+			"I seq=b820 wait=0",
+			"I seq=b910 wait=0",
+			"I seq=bc03 wait=0",
+			"I seq=c089 wait=0",
+			"I seq=c178 wait=0",
+			"I seq=c278 wait=0",
+			"I seq=d088 wait=0",
+			"I seq=e0000002 wait=0",
+			"I seq=e10400000005000000002020 wait=0",
+			"I seq=e200000000000000000000000000 wait=0",
+			"I seq=e300003300 wait=0",
+			"I seq=e42200 wait=0",
+			"I seq=e5045ca0a0065ca0a00000000000000000 wait=0",
+			"I seq=e600003300 wait=0",
+			"I seq=e72200 wait=0",
+			"I seq=e8055ca0a0075ca0a00000000000000000 wait=0",
+			"I seq=eb02004040000000 wait=0",
+			"I seq=ec0000 wait=0",
+			"I seq=edfa450bffffffffffffffffffffb054af wait=0",
+			"I seq=ef080808453f54 wait=0",
+			"I seq=ff7701000000 wait=0",
+			"I seq=3617 wait=0",
+			"I seq=3a77 wait=0",
+			"I seq=11 wait=c8",
+			"I seq=29 wait=a";
 
 		port {
 			panel_in: endpoint {
