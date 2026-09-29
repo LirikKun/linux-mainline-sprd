@@ -582,6 +582,13 @@
 	remote-endpoint = <&panel_in>;
 };
 
+/*
+ * First-boot diagnostic posture: mirror the v7-proven USB wiring. TCPM
+ * (pmic_typec_pd) is disabled — its sc27xx typec driver is NOT in this kernel
+ * build — so the role never flips and the g_serial gadget never binds (no COM
+ * port). v7 forces role=device from init via /sys/class/usb_role/*/role and
+ * this was proven to enumerate on the RG405M.
+ */
 &hsphy {
 	status = "okay";
 	phy-supply = <&vddusb33>;
@@ -590,35 +597,10 @@
 &usb {
 	status = "okay";
 	dr_mode = "otg";
-	usb-role-switch;
-	role-switch-default-mode = "peripheral";
-
-	port {
-		usb_hs_ep: endpoint {
-			remote-endpoint = <&tcpc_hs_ep>;
-		};
-	};
 };
 
 &pmic_typec_pd {
-	status = "okay";
-	vbus-supply = <&usb_otg_vbus>;
-
-	connector {
-		compatible = "usb-c-connector";
-		label = "USB-C";
-		power-role = "dual";
-		data-role = "dual";
-		try-power-role = "sink";
-		pd-disable;
-		typec-power-opmode = "default";
-
-		port {
-			tcpc_hs_ep: endpoint {
-				remote-endpoint = <&usb_hs_ep>;
-			};
-		};
-	};
+	status = "disabled";
 };
 
 &gpu {
@@ -695,18 +677,21 @@
 	};
 };
 
+/*
+ * SD slot: v7-proven conservative settings. This board's SD is unstable when
+ * the controller switches signaling to 1.8 V (stock kernel log: "signal
+ * voltage enable hw fail" -> card removed). no-1-8-v + 25 MHz caps it at
+ * high-speed 3.3 V; broken-cd treats the card as always present (the boot
+ * rootfs lives on it — a spurious removal would be fatal).
+ */
 &sdio0 {
 	status = "okay";
 	vmmc-supply = <&vddsdcore>;
 	vqmmc-supply = <&vddsdio>;
-	cd-gpios = <&eic_sync 19 GPIO_ACTIVE_LOW>;
 	bus-width = <4>;
-	sprd,phy-delay-sd-uhs-sdr104 = <0x7f 0x73 0x72 0x72>;
-	sprd,phy-delay-sd-uhs-sdr50 = <0x6e 0x7f 0x01 0x01>;
-	sprd,phy-delay-sd-highspeed = <0x7f 0x1a 0x9a 0x9a>;
-	sprd,phy-delay-legacy = <0x7f 0x1a 0x9a 0x9a>;
-	sd-uhs-sdr104;
-	sd-uhs-sdr50;
+	max-frequency = <25000000>;
+	broken-cd;
+	no-1-8-v;
 	no-sdio;
 	no-mmc;
 };
