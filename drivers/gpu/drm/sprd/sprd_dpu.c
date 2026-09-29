@@ -289,6 +289,22 @@ static u32 drm_blend_to_dpu(struct drm_plane_state *state)
 {
 	u32 blend = 0;
 
+	/*
+	 * Framebuffers without an alpha channel (XRGB8888/RGBX8888 — what
+	 * fbdev emulation uses) must never be composited by their per-pixel
+	 * alpha byte: it carries garbage (typically 0), so the layer blends
+	 * fully transparent and shows whatever the buffer was allocated over
+	 * (observed on RG405M: pink background, dark-purple text). The vendor
+	 * DPU stack handles this case as HWC_BLENDING_NONE → layer alpha
+	 * (dpu_r2p0.c); mirror that here regardless of the DRM blend property.
+	 */
+	if (state->fb && !state->fb->format->has_alpha) {
+		/* don't do blending, maybe RGBX */
+		/* alpha mode select - layer alpha */
+		blend |= BIT_DPU_LAY_LAYER_ALPHA;
+		return blend;
+	}
+
 	switch (state->pixel_blend_mode) {
 	case DRM_MODE_BLEND_COVERAGE:
 		/* alpha mode select - combo alpha */
