@@ -586,7 +586,7 @@
  * First-boot diagnostic posture: mirror the v7-proven USB wiring. TCPM
  * (pmic_typec_pd) is disabled — its sc27xx typec driver is NOT in this kernel
  * build — so the role never flips and the g_serial gadget never binds (no COM
- * port). v7 forces role=device from init via /sys/class/usb_role/*/role and
+ * port). v7 forces role=device from init via the usb_role class sysfs and
  * this was proven to enumerate on the RG405M.
  */
 &hsphy {
