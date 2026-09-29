@@ -719,6 +719,33 @@ static struct sprd_plane *sprd_planes_init(struct drm_device *drm)
 	return primary;
 }
 
+static int sprd_crtc_atomic_check(struct drm_crtc *crtc,
+				  struct drm_atomic_state *state)
+{
+	struct sprd_dpu *dpu = to_sprd_crtc(crtc);
+	struct drm_crtc_state *new_state =
+		drm_atomic_get_new_crtc_state(state, crtc);
+	unsigned long rate;
+	long rounded;
+
+	if (!new_state->enable || !dpu->ctx.dpi_clk)
+		return 0;
+	if (new_state->adjusted_mode.clock <= 0)
+		return -EINVAL;
+
+	rate = new_state->adjusted_mode.clock * 1000UL;
+	rounded = clk_round_rate(dpu->ctx.dpi_clk, rate);
+	if (rounded < 0)
+		return rounded;
+	if (rounded != rate) {
+		drm_err(crtc->dev, "DPI clock cannot provide %lu Hz (rounded %ld)\n",
+			rate, rounded);
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
 static void sprd_crtc_mode_set_nofb(struct drm_crtc *crtc)
 {
 	struct sprd_dpu *dpu = to_sprd_crtc(crtc);
@@ -727,6 +754,26 @@ static void sprd_crtc_mode_set_nofb(struct drm_crtc *crtc)
 	struct sprd_dsi *dsi;
 
 	drm_display_mode_to_videomode(mode, &dpu->ctx.vm);
+
+	if (dpu->ctx.dpi_clk) {
+		unsigned long rate = dpu->ctx.vm.pixelclock;
+		unsigned long actual;
+		int ret = clk_set_rate(dpu->ctx.dpi_clk, rate);
+
+		if (ret) {
+			drm_err(crtc->dev, "DPI clock set failed: %d (requested %lu Hz)\n",
+				ret, rate);
+			return;
+		}
+		actual = clk_get_rate(dpu->ctx.dpi_clk);
+		if (actual != rate) {
+			drm_err(crtc->dev, "DPI clock mismatch: requested %lu, actual %lu Hz\n",
+				rate, actual);
+			return;
+		}
+		drm_info(crtc->dev, "DPI clock: requested %lu, actual %lu Hz\n",
+			 rate, actual);
+	}
 
 	drm_for_each_encoder_mask(encoder, crtc->dev,
 				  crtc->state->encoder_mask) {
@@ -803,6 +850,7 @@ static void sprd_crtc_disable_vblank(struct drm_crtc *crtc)
 }
 
 static const struct drm_crtc_helper_funcs sprd_crtc_helper_funcs = {
+	.atomic_check	= sprd_crtc_atomic_check,
 	.mode_set_nofb	= sprd_crtc_mode_set_nofb,
 	.atomic_flush	= sprd_crtc_atomic_flush,
 	.atomic_enable	= sprd_crtc_atomic_enable,
@@ -946,12 +994,7 @@ static int sprd_dpu_context_init(struct sprd_dpu *dpu,
 		dev_err(dev, "failed to get DPU dpi clock\n");
 		return PTR_ERR(ctx->dpi_clk);
 	}
-	if (ctx->dpi_clk) {
-		int ret = clk_set_rate(ctx->dpi_clk, 38400000);
-
-		if (ret)
-			dev_warn(dev, "failed to set dpi clock rate: %d\n", ret);
-	}
+	/* Program the pixel rate from adjusted_mode at modeset time. */
 
 	/*
 	 * Optional hardware reset. The bootloader leaves the DPU running and
