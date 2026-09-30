@@ -633,12 +633,25 @@
 };
 
 /*
+ * vddldo1 is the shared 3.3 V rail for the touch controller (stock:
+ * touch node vdd-supply = <0x121>, vdd-voltage = 0x325aa0 = 3.3 V) and the
+ * joypad analog rails (same supply, same voltage in stock). The mainline
+ * goodix driver only ENABLES its supplies, never sets voltage — without a
+ * pinned constraint the LDO can come up at its 1.2 V floor and the GT911
+ * never ACKs I2C (observed: probe -EIO on 0x8140). Pin to stock's 3.3 V.
+ */
+&vddldo1 {
+	regulator-min-microvolt = <3300000>;
+	regulator-max-microvolt = <3300000>;
+};
+
+/*
  * GT911 touchscreen on i2c3 @0x14 (stock: i2c@600000 / touchscreen@14).
  * Same chip and gpios as RG Rotate (irq 144 / reset 145, ACTIVE_HIGH —
  * the mainline goodix driver writes literal levels through the reset/INT
  * handshake that selects the 0x14 address, so ACTIVE_LOW inverts it and
  * every transaction fails with -EIO).
- * Touch vdd is PMIC LDO1 (stock phandle 0x121 = LDO_VDDLDO1, 3.3 V).
+ * Touch vdd is PMIC LDO1 pinned to 3.3 V above (stock vdd-voltage 0x325aa0).
  * Scanout is portrait 480x640 while the handheld is landscape; start with
  * both axes inverted like the Rotate and verify with evtest on device.
  */
