@@ -242,28 +242,38 @@
 			gpios = <&ap_gpio 86 GPIO_ACTIVE_LOW>;	/* GPIO86 */
 			debounce-interval = <2>;
 		};
-		btn-a {
-			label = "BTN-A";
-			linux,code = <BTN_SOUTH>;
+		/*
+		 * Face buttons: GPIO numbers verified identical to stock
+		 * vendor.dts (sw5-sw8), but the ROTATE reference mapped the
+		 * BTN_* codes differently and on-device evtest proved the
+		 * physical positions on the RG405M are:
+		 *   west = GPIO116, east = GPIO113, south = GPIO112,
+		 *   north = GPIO88.
+		 * Codes are assigned by physical position (what emulators
+		 * expect); letters follow the Nintendo-style print.
+		 */
+		btn-y {					/* physical west */
+			label = "BTN-Y";
+			linux,code = <BTN_WEST>;
 			gpios = <&ap_gpio 116 GPIO_ACTIVE_LOW>;	/* GPIO116 */
 			debounce-interval = <2>;
 		};
-		btn-b {
-			label = "BTN-B";
+		btn-a {					/* physical east */
+			label = "BTN-A";
 			linux,code = <BTN_EAST>;
+			gpios = <&ap_gpio 113 GPIO_ACTIVE_LOW>;	/* IIS3DO */
+			debounce-interval = <2>;
+		};
+		btn-b {					/* physical south */
+			label = "BTN-B";
+			linux,code = <BTN_SOUTH>;
 			gpios = <&ap_gpio 112 GPIO_ACTIVE_LOW>;	/* IIS3DI */
 			debounce-interval = <2>;
 		};
-		btn-x {
+		btn-x {					/* physical north */
 			label = "BTN-X";
 			linux,code = <BTN_NORTH>;
 			gpios = <&ap_gpio 88 GPIO_ACTIVE_LOW>;	/* GPIO88 */
-			debounce-interval = <2>;
-		};
-		btn-y {
-			label = "BTN-Y";
-			linux,code = <BTN_WEST>;
-			gpios = <&ap_gpio 113 GPIO_ACTIVE_LOW>;	/* IIS3DO */
 			debounce-interval = <2>;
 		};
 		btn-tl {
@@ -320,9 +330,16 @@
 			gpios = <&ap_gpio 23 GPIO_ACTIVE_LOW>;	/* RFCTL4 */
 			debounce-interval = <2>;
 		};
-		btn-back {
-			label = "BTN-BACK";
-			linux,code = <BTN_SELECT>;
+		/*
+		 * The F button. Stock vendor.dts calls GPIO124 "GPIO BACK KEY"
+		 * with KEY_BACK; it was mistakenly mapped to BTN_SELECT here
+		 * (duplicate of the real Select on GPIO55 — evtest confirmed).
+		 * KEY_HOMEPAGE fits Linux launcher semantics better than
+		 * Android's BACK; change to KEY_BACK if frontends prefer it.
+		 */
+		btn-home {
+			label = "HOME";
+			linux,code = <KEY_HOMEPAGE>;
 			gpios = <&ap_gpio 124 GPIO_ACTIVE_LOW>;	/* KEYIN0 */
 			debounce-interval = <2>;
 		};
