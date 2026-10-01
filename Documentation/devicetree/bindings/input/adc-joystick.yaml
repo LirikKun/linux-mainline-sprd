@@ -91,6 +91,15 @@ patternProperties:
           Omitting this property indicates the axis always returns to exactly
           the center position.
 
+      abs-center:
+        $ref: /schemas/types.yaml#/definitions/int32
+        description: >
+          Raw-space rest point of the axis. Hall-effect sticks rarely rest at
+          mid-scale; when set, the driver remaps values piecewise-linearly so
+          that abs-center becomes the middle of abs-range while both range
+          ends stay reachable. Applied before abs-range inversion. Omitting
+          the property disables centering.
+
     required:
       - reg
       - linux,code

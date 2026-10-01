@@ -16,6 +16,7 @@
 struct adc_joystick_axis {
 	u32 code;
 	bool inverted;
+	int center;	/* raw-space rest point; < 0 = centering off */
 };
 
 struct adc_joystick {
@@ -35,6 +36,30 @@ static int adc_joystick_invert(struct input_dev *dev,
 	return (max + min) - val;
 }
 
+/*
+ * Hall-sensor sticks rarely rest at mid-scale (the vendor driver carried
+ * per-axis n/p-tuning for exactly this). Remap piecewise-linearly around
+ * the measured rest point so center -> mid of the declared range, while
+ * keeping both ends reachable. DT: abs-center = <raw rest value>.
+ */
+static int adc_joystick_center(int val, int center, int min, int max)
+{
+	int mid = (min + max) / 2;
+	int out;
+
+	if (val <= center) {
+		if (center <= min)
+			return min;
+		out = min + (val - min) * (mid - min) / (center - min);
+	} else {
+		if (center >= max)
+			return max;
+		out = mid + (val - center) * (max - mid) / (max - center);
+	}
+
+	return clamp(out, min, max);
+}
+
 static void adc_joystick_poll(struct input_dev *input)
 {
 	struct adc_joystick *joy = input_get_drvdata(input);
@@ -44,6 +69,10 @@ static void adc_joystick_poll(struct input_dev *input)
 		ret = iio_read_channel_raw(&joy->chans[i], &val);
 		if (ret < 0)
 			return;
+		if (joy->axes[i].center >= 0)
+			val = adc_joystick_center(val, joy->axes[i].center,
+					input_abs_get_min(input, joy->axes[i].code),
+					input_abs_get_max(input, joy->axes[i].code));
 		if (joy->axes[i].inverted)
 			val = adc_joystick_invert(input, i, val);
 		input_report_abs(input, joy->axes[i].code, val);
@@ -94,6 +123,10 @@ static int adc_joystick_handle(const void *data, void *private)
 			val = sign_extend32(val, msb);
 		else
 			val &= GENMASK(msb, 0);
+		if (joy->axes[i].center >= 0)
+			val = adc_joystick_center(val, joy->axes[i].center,
+					input_abs_get_min(joy->input, joy->axes[i].code),
+					input_abs_get_max(joy->input, joy->axes[i].code));
 		if (joy->axes[i].inverted)
 			val = adc_joystick_invert(joy->input, i, val);
 		input_report_abs(joy->input, joy->axes[i].code, val);
@@ -185,6 +218,21 @@ static int adc_joystick_set_axes(struct device *dev, struct adc_joystick *joy)
 
 		if (fwnode_property_read_u32(child, "abs-flat", &flat))
 			flat = 0;
+
+		/*
+		 * Optional raw-space rest point (Hall sticks rarely center at
+		 * mid-scale). Values are 0..max, read as u32; absence keeps
+		 * centering off (center = -1). Applied before inversion.
+		 */
+		{
+			u32 center = 0;
+
+			if (!fwnode_property_read_u32(child, "abs-center",
+						      &center))
+				axes[i].center = center;
+			else
+				axes[i].center = -1;
+		}
 
 		input_set_abs_params(joy->input, axes[i].code,
 				     range[0], range[1], fuzz, flat);

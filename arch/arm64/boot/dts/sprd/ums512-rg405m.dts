@@ -879,17 +879,25 @@
 		io-channels = <&pmic_adc 2>;		/* stock joypad_adc */
 		io-channel-names = "parent";
 		mux-controls = <&joystick_mux_ctrl>;
-		settle-time-us = <100>;
+		settle-time-us = <200>;			/* kill switch transients */
 	};
 
 	adc_joystick: adc-joystick {
 		compatible = "adc-joystick";
 		/*
-		 * Axis mapping from on-device measurement: the adc-joystick
-		 * axis@N reg N reads io-channels[N], so list the mux states in
-		 * ABS order: X=left horizontal (state3), Y=left vertical
-		 * (state2), RX=right horizontal (state1), RY=right vertical
-		 * (state0).
+		 * Axis mapping measured on device (stick-calib, 3 runs):
+		 *   mux state0 = RIGHT vertical,  state1 = RIGHT horizontal,
+		 *   state2 = LEFT vertical,       state3 = LEFT horizontal.
+		 * axis@N reg N reads io-channels[N], so list states in ABS
+		 * order: X=state3, Y=state2, RX=state1, RY=state0.
+		 * Directions (same measurement): left stick standard
+		 * (left/up = low raw), RIGHT STICK INVERTED (left/up = high
+		 * raw) -> declare RX/RY ranges reversed; the driver then
+		 * reports (max+min)-raw, matching the convention.
+		 * Note: Hall rest points are NOT mid-scale (2545..2998 of
+		 * 4095) — the abs-range stays honest full-scale; per-unit
+		 * centering is done in the evdev layer (jscal, see
+		 * /usr/local/sbin/stick-calibrate). Vendor fuzz/flat: 64/32.
 		 */
 		io-channels = <&joystick_adc_mux 3>,
 			      <&joystick_adc_mux 2>,
@@ -908,32 +916,36 @@
 		#address-cells = <1>;
 		#size-cells = <0>;
 
-		axis@0 {
+		axis@0 {	/* ABS_X  = mux state3 = LEFT horizontal */
 			reg = <0>;
 			linux,code = <ABS_X>;
-			abs-range = <0 4095>;		/* 12-bit sc2730 ADC */
-			abs-fuzz = <16>;
+			abs-range = <0 4058>;		/* measured travel */
+			abs-center = <2987>;		/* Hall rest point */
+			abs-fuzz = <64>;
 			abs-flat = <32>;
 		};
-		axis@1 {
+		axis@1 {	/* ABS_Y  = mux state2 = LEFT vertical */
 			reg = <1>;
 			linux,code = <ABS_Y>;
-			abs-range = <0 4095>;
-			abs-fuzz = <16>;
+			abs-range = <402 4058>;
+			abs-center = <2772>;
+			abs-fuzz = <64>;
 			abs-flat = <32>;
 		};
-		axis@2 {
+		axis@2 {	/* ABS_RX = mux state1 = RIGHT horizontal (inv) */
 			reg = <2>;
 			linux,code = <ABS_RX>;
-			abs-range = <0 4095>;
-			abs-fuzz = <16>;
+			abs-range = <4058 340>;		/* inverted (measured) */
+			abs-center = <2910>;
+			abs-fuzz = <64>;
 			abs-flat = <32>;
 		};
-		axis@3 {
+		axis@3 {	/* ABS_RY = mux state0 = RIGHT vertical (inv) */
 			reg = <3>;
 			linux,code = <ABS_RY>;
-			abs-range = <0 4095>;
-			abs-fuzz = <16>;
+			abs-range = <4058 0>;		/* inverted (measured) */
+			abs-center = <2579>;
+			abs-fuzz = <64>;
 			abs-flat = <32>;
 		};
 	};
