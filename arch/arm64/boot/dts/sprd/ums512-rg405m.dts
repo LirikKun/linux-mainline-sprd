@@ -922,7 +922,7 @@
 			abs-range = <0 4058>;		/* measured travel */
 			abs-center = <2987>;		/* Hall rest point */
 			abs-fuzz = <64>;
-			abs-flat = <32>;
+			abs-flat = <350>;		/* Hall hysteresis drift ~±160 raw */
 		};
 		axis@1 {	/* ABS_Y  = mux state2 = LEFT vertical */
 			reg = <1>;
@@ -930,7 +930,7 @@
 			abs-range = <402 4058>;
 			abs-center = <2772>;
 			abs-fuzz = <64>;
-			abs-flat = <32>;
+			abs-flat = <350>;		/* Hall hysteresis drift ~±160 raw */
 		};
 		axis@2 {	/* ABS_RX = mux state1 = RIGHT horizontal (inv) */
 			reg = <2>;
@@ -938,7 +938,7 @@
 			abs-range = <4058 340>;		/* inverted (measured) */
 			abs-center = <2910>;
 			abs-fuzz = <64>;
-			abs-flat = <32>;
+			abs-flat = <350>;		/* Hall hysteresis drift ~±160 raw */
 		};
 		axis@3 {	/* ABS_RY = mux state0 = RIGHT vertical (inv) */
 			reg = <3>;
@@ -946,7 +946,7 @@
 			abs-range = <4058 0>;		/* inverted (measured) */
 			abs-center = <2579>;
 			abs-fuzz = <64>;
-			abs-flat = <32>;
+			abs-flat = <350>;		/* Hall hysteresis drift ~±160 raw */
 		};
 	};
 };
