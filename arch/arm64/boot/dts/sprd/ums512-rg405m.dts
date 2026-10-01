@@ -870,7 +870,12 @@
 	joystick_adc_mux: adc-mux {
 		compatible = "io-channel-mux";
 		#io-channel-cells = <1>;
-		channels = "left_x", "left_y", "right_x", "right_y";
+		/*
+		 * Mux state -> axis, measured on device (user evtest report
+		 * 2026-10-01): state0 = RIGHT stick vertical, state1 = RIGHT
+		 * horizontal, state2 = LEFT vertical, state3 = LEFT horizontal.
+		 */
+		channels = "right_y", "right_x", "left_y", "left_x";
 		io-channels = <&pmic_adc 2>;		/* stock joypad_adc */
 		io-channel-names = "parent";
 		mux-controls = <&joystick_mux_ctrl>;
@@ -879,10 +884,17 @@
 
 	adc_joystick: adc-joystick {
 		compatible = "adc-joystick";
-		io-channels = <&joystick_adc_mux 0>,
-			      <&joystick_adc_mux 1>,
+		/*
+		 * Axis mapping from on-device measurement: the adc-joystick
+		 * axis@N reg N reads io-channels[N], so list the mux states in
+		 * ABS order: X=left horizontal (state3), Y=left vertical
+		 * (state2), RX=right horizontal (state1), RY=right vertical
+		 * (state0).
+		 */
+		io-channels = <&joystick_adc_mux 3>,
 			      <&joystick_adc_mux 2>,
-			      <&joystick_adc_mux 3>;
+			      <&joystick_adc_mux 1>,
+			      <&joystick_adc_mux 0>;
 		poll-interval = <5>;			/* stock poll-interval */
 		/*
 		 * func4 muxing for all seven stick lines (en/A/B + 4 rails).
