@@ -859,15 +859,12 @@
 		compatible = "gpio-mux";
 		#mux-control-cells = <0>;
 		/*
-		 * Stock flags for amux-a/b are 0x01 = ACTIVE_LOW (same vendor
-		 * convention the buttons proved: stock flag 1 == ACTIVE_LOW).
-		 * The vendor driver wrote LOGICAL levels through gpiod, so
-		 * mux state bit i -> physical level inverted; declare
-		 * ACTIVE_LOW to reproduce the stock channel mapping exactly.
-		 * Bit order: amux-a first = LSB (state bit0), amux-b = bit1.
+		 * amux-a (gpio36) = select bit0, amux-b (gpio37) = select bit1.
+		 * Declared ACTIVE_HIGH so gpio-mux drives the same PHYSICAL
+		 * levels the on-device sweep validated (state s -> A=s&1,B=s>>1).
 		 */
-		mux-gpios = <&ap_gpio 36 GPIO_ACTIVE_LOW>,	/* amux-a */
-			    <&ap_gpio 37 GPIO_ACTIVE_LOW>;	/* amux-b */
+		mux-gpios = <&ap_gpio 36 GPIO_ACTIVE_HIGH>,	/* amux-a */
+			    <&ap_gpio 37 GPIO_ACTIVE_HIGH>;	/* amux-b */
 	};
 
 	joystick_adc_mux: adc-mux {
@@ -930,19 +927,22 @@
 	};
 };
 
-/*
- * Stick power rails + mux enable. Stock DT flags for all five lines are
- * 0x01 = ACTIVE_LOW, i.e. asserted == PHYSICAL LOW:
- *   - amux-en (gpio15) is an active-low enable (EN-bar of the analog mux);
- *     driving it high left the mux OUTPUT DISCONNECTED — the adc-joystick
- *     registered fine but read a constant (zero reaction to stick movement).
- *   - adc-power-ctl1..4 (gpio19/21/22/24) switch the per-axis Hall sensor
- *     rails, classic high-side PMOS: gate LOW = rail ON. Driving them high
- *     kept the stick sensors unpowered.
- * Hogs declare ACTIVE_LOW + output-high = "asserted" = physical low.
- * func4 pad muxing rides on the adc-joystick node (probes after hogs latch).
- */
 &ap_gpio {
+	/*
+	 * Stick rails + mux enable — levels from the on-device brute-force
+	 * sweep (STICK.TXT, build/stickdiag/):
+	 *   - rails (gpio19/21/22/24): physical HIGH powers all four axis
+	 *     sensors (spread ~1100 mV wiggled vs ~100 mV at physical low).
+	 *     The stock ACTIVE_LOW-looking flag refers to the vendor driver's
+	 *     logical level; electrically they are simply active-high.
+	 *   - amux-en (gpio15): physical LOW enables the analog switch
+	 *     (classic EN-bar); physical high = output disconnected.
+	 *   - mux select (gpio36/37): driven physically (ACTIVE_HIGH) so
+	 *     state 0 = (A=0,B=0), 1 = (A=1,B=0), 2 = (A=0,B=1), 3 = (A=1,B=1),
+	 *     matching the stock channel order.
+	 * func4 pad muxing rides on the adc-joystick node (probes after the
+	 * hogs latched their levels).
+	 */
 	joystick_amux_en {
 		gpio-hog;
 		gpios = <15 GPIO_ACTIVE_LOW>;
@@ -951,25 +951,25 @@
 	};
 	joystick_rail1 {
 		gpio-hog;
-		gpios = <19 GPIO_ACTIVE_LOW>;
+		gpios = <19 GPIO_ACTIVE_HIGH>;
 		output-high;
 		line-name = "stick-rail-x";
 	};
 	joystick_rail2 {
 		gpio-hog;
-		gpios = <21 GPIO_ACTIVE_LOW>;
+		gpios = <21 GPIO_ACTIVE_HIGH>;
 		output-high;
 		line-name = "stick-rail-y";
 	};
 	joystick_rail3 {
 		gpio-hog;
-		gpios = <22 GPIO_ACTIVE_LOW>;
+		gpios = <22 GPIO_ACTIVE_HIGH>;
 		output-high;
 		line-name = "stick-rail-rx";
 	};
 	joystick_rail4 {
 		gpio-hog;
-		gpios = <24 GPIO_ACTIVE_LOW>;
+		gpios = <24 GPIO_ACTIVE_HIGH>;
 		output-high;
 		line-name = "stick-rail-ry";
 	};
