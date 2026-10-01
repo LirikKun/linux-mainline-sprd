@@ -851,9 +851,9 @@
 	 * a time (it also powers the sticks off when idle to save battery).
 	 * Here all four rails + mux enable are hogged high permanently; the
 	 * mux still selects the axis, so readings stay correct — we just lose
-	 * the idle power saving. Channel order (left_x, left_y, right_x,
-	 * right_y) matches amux-count=4 stock layout and rg35xx convention;
-	 * verify with evtest and swap labels if the axes come out crossed.
+	 * the idle power saving. Channel order measured on device:
+	 * state0=RIGHT vert, state1=RIGHT horiz, state2=LEFT vert,
+	 * state3=LEFT horiz (see io-channel-mux/adc-joystick comments).
 	 */
 	joystick_mux_ctrl: mux-controller {
 		compatible = "gpio-mux";
@@ -919,36 +919,46 @@
 		axis@0 {	/* ABS_X  = mux state3 = LEFT horizontal */
 			reg = <0>;
 			linux,code = <ABS_X>;
-			abs-range = <0 4058>;		/* measured travel */
-			abs-center = <2987>;		/* Hall rest point */
+			abs-range = <0 4095>;		/* PROVISIONAL scale-2 */
+			abs-center = <1150>;		/* est; refine via stick-calib */
 			abs-fuzz = <64>;
-			abs-flat = <350>;		/* Hall hysteresis drift ~±160 raw */
+			abs-flat = <350>;		/* Hall hysteresis drift */
 		};
 		axis@1 {	/* ABS_Y  = mux state2 = LEFT vertical */
 			reg = <1>;
 			linux,code = <ABS_Y>;
-			abs-range = <402 4058>;
-			abs-center = <2772>;
+			abs-range = <0 4095>;		/* PROVISIONAL scale-2 */
+			abs-center = <1070>;
 			abs-fuzz = <64>;
-			abs-flat = <350>;		/* Hall hysteresis drift ~±160 raw */
+			abs-flat = <350>;
 		};
 		axis@2 {	/* ABS_RX = mux state1 = RIGHT horizontal (inv) */
 			reg = <2>;
 			linux,code = <ABS_RX>;
-			abs-range = <4058 340>;		/* inverted (measured) */
-			abs-center = <2910>;
+			abs-range = <4095 0>;		/* inverted (sensor polarity) */
+			abs-center = <1120>;		/* raw rest, pre-inversion */
 			abs-fuzz = <64>;
-			abs-flat = <350>;		/* Hall hysteresis drift ~±160 raw */
+			abs-flat = <350>;
 		};
 		axis@3 {	/* ABS_RY = mux state0 = RIGHT vertical (inv) */
 			reg = <3>;
 			linux,code = <ABS_RY>;
-			abs-range = <4058 0>;		/* inverted (measured) */
-			abs-center = <2579>;
+			abs-range = <4095 0>;		/* inverted (sensor polarity) */
+			abs-center = <990>;
 			abs-fuzz = <64>;
-			abs-flat = <350>;		/* Hall hysteresis drift ~±160 raw */
+			abs-flat = <350>;
 		};
 	};
+};
+
+/*
+ * Joypad ADC channel needs the wider input divider (stock button-adc-scale
+ * = <2>): Hall sticks on the 3.3 V rail rest near 0.9 V and swing past the
+ * scale-0 ceiling (~1.2 V), clipping the positive half of travel at 30-36%
+ * of deflection. Scale 2 ≈ 3.1 V full range restores the whole swing.
+ */
+&pmic_adc {
+	sprd,channel-scales = <2 2>;	/* <channel scale> pairs: ch2 -> 2 */
 };
 
 &ap_gpio {

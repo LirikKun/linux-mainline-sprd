@@ -908,6 +908,32 @@ static int sc27xx_adc_probe(struct platform_device *pdev)
 	sc27xx_data->var_data = pdata;
 	sc27xx_data->var_data->init_scale(sc27xx_data);
 
+	/*
+	 * Per-board channel scale overrides: "sprd,channel-scales" is a list
+	 * of <channel scale> pairs (scale 0..3 selects the PMIC input
+	 * divider, e.g. scale 0 ≈ 1.2 V full range, scale 2 ≈ 3.1 V).
+	 * Analog-joypad ADC inputs need a wider range than the default:
+	 * Hall sticks on a 3.3 V rail rest near 0.9 V and clip the scale-0
+	 * range (~1.2 V) well before full deflection. Stock vendor DTs carry
+	 * this as the driver-private "button-adc-scale" property (RG405M:
+	 * scale 2 on the joypad channel).
+	 */
+	{
+		u32 scales[16];
+		int n, i;
+
+		n = of_property_count_u32_elems(np, "sprd,channel-scales");
+		if (n > 0 && !(n % 2) && n <= ARRAY_SIZE(scales) &&
+		    !of_property_read_u32_array(np, "sprd,channel-scales",
+						scales, n)) {
+			for (i = 0; i < n; i += 2)
+				if (scales[i] < SC27XX_ADC_CHANNEL_MAX &&
+				    scales[i + 1] <= 3)
+					sc27xx_data->channel_scale[scales[i]] =
+						scales[i + 1];
+		}
+	}
+
 	ret = sc27xx_adc_enable(sc27xx_data);
 	if (ret)
 		return dev_err_probe(dev, ret, "failed to enable ADC module\n");
