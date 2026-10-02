@@ -1435,11 +1435,13 @@ struct aud_pm_vbc {
  * stock profiles use bits above 28 (e.g. the AGDSP VBC profile selector
  * 961216512 = 0x394B0000, offset 57), so a 28-bit ceiling made userspace
  * (amixer/alsactl) silently reject them before put() ran. vbc_profile_put()
- * itself validates offset < num_mode, so widen to the full 32-bit range.
- * (Literal 0xffffffff, not MAX_32_BIT: that macro lives in vbc-dai.c and
- * this header must stay self-contained.)
+ * itself validates offset < num_mode, so widen as far as the control core
+ * allows. NOTE: soc_mixer_control.max is a SIGNED int — 0xffffffff would be
+ * −1, and amixer then clamps every write to −1 (two EPERMs at boot, profile
+ * never set). 0x7fffffff is the correct ceiling: it covers every real
+ * profile value (offset ≤ 127) and stays positive.
  */
-#define VBC_PROFILE_CNT_MAX 0xffffffff
+#define VBC_PROFILE_CNT_MAX 0x7fffffff
 #define AUD_FIRMWARE_PATHNAME_LEN_MAX 256
 
 /* header of the data */
