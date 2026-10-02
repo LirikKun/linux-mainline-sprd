@@ -1429,7 +1429,17 @@ struct aud_pm_vbc {
 /* FIRMWARE */
 #define VBC_PROFILE_FIRMWARE_MAGIC_LEN 16
 #define VBC_PROFILE_FIRMWARE_MAGIC_ID ("audio_profile")
-#define VBC_PROFILE_CNT_MAX 0x0fffffff
+/*
+ * The Profile Select controls carry a packed 32-bit value
+ * ((offset<<24)|(param_id<<16)|dsp_case) — see vbc_profile_put(). The real
+ * stock profiles use bits above 28 (e.g. the AGDSP VBC profile selector
+ * 961216512 = 0x394B0000, offset 57), so a 28-bit ceiling made userspace
+ * (amixer/alsactl) silently reject them before put() ran. vbc_profile_put()
+ * itself validates offset < num_mode, so widen to the full 32-bit range.
+ * (Literal 0xffffffff, not MAX_32_BIT: that macro lives in vbc-dai.c and
+ * this header must stay self-contained.)
+ */
+#define VBC_PROFILE_CNT_MAX 0xffffffff
 #define AUD_FIRMWARE_PATHNAME_LEN_MAX 256
 
 /* header of the data */
