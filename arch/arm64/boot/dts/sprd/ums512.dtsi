@@ -2032,6 +2032,20 @@
 					<35 0x19b8>, <39 0x19ac>;
 			};
 
+			/*
+			 * AON 64-bit suspend/persistent timer (stock: timer@32050020).
+			 * timer-sprd.c binds "sprd,sc9860-suspend-timer" as a
+			 * CLOCK_SOURCE_SUSPEND_NONSTOP clocksource: without it the
+			 * system clocksource (arch timer) stops across suspend and
+			 * monotonic time freezes while asleep.
+			 */
+			suspend_timer: timer@50020 {
+				compatible = "sprd,ums512-suspend-timer",
+					     "sprd,sc9860-suspend-timer";
+				reg = <0x50020 0x20>;
+				clocks = <&ext_32k>;
+			};
+
 			hwlock: hwspinlock@7f0000 {
 				compatible = "sprd,hwspinlock-r3p0";
 				reg = <0x7f0000 0x10000>;
