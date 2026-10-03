@@ -133,10 +133,31 @@ static int sc23xx_sdio_tx(int chn, const void *data, u16 len, bool direct)
 	return ret;
 }
 
+/*
+ * Commands go out on the DIRECT path (synchronous ADMA write from the
+ * caller's context), not the buffered tx-thread path.
+ *
+ * Why: sdiohal_suspend() issues the CMD_POWER_SAVE handshake from
+ * power_notify, which runs in the dpm phase — AFTER the freezer has
+ * frozen all freezable tasks, including sdiohal_tx_thread (it must stay
+ * freezable or suspend fails with -EBUSY, see sdiohal_tx.c). A buffered
+ * command would sit in the tx queue until the thread thaws at resume:
+ * observed as "chn 8 suspend handshake failed: -110" (3 s cmd timeout)
+ * aborting every system suspend, plus a stale cmd=5 response mismatching
+ * the next command after wake.
+ *
+ * Direct is safe for commands: every tx_cmd caller is process context
+ * (sc23xx_send_cmd_wait holds a mutex), the write wakes the CP itself
+ * (sdiohal_cp_tx_wakeup) and completes before returning, and the RX side
+ * that delivers the response runs in the non-freezable sdiohal_rx_thread
+ * while SDIO IRQs are still live (sdiohal_suspend has not disabled them
+ * yet — power_notify is its first step). Data frames already use direct
+ * for the same "wakes the CP, may sleep" reason.
+ */
 static int sc23xx_sdio_tx_cmd(struct sc23xx_dev *sdev, struct sk_buff *skb)
 {
 	return sc23xx_sdio_tx(SC23XX_SDIO_TX_CMD_PORT, skb->data, skb->len,
-			      false);
+			      true);
 }
 
 /*
