@@ -766,7 +766,16 @@
 	vmmc-supply = <&vddsdcore>;
 	vqmmc-supply = <&vddsdio>;
 	bus-width = <4>;
-	max-frequency = <25000000>;
+	max-frequency = <50000000>;
+	/*
+	 * Stock SD PHY delays for the 3.3 V modes. UHS (SDR50/SDR104) needs
+	 * 1.8 V signaling, and the stock Android kernel logs "signal voltage
+	 * enable hw fail" -> card removed on this slot, so no-1-8-v stays and
+	 * no sd-uhs-* caps are declared. SD high-speed at 50 MHz still works
+	 * at 3.3 V and doubles rootfs throughput (~12 -> ~24 MB/s measured).
+	 */
+	sprd,phy-delay-legacy = <0x7f 0x1a 0x9a 0x9a>;
+	sprd,phy-delay-sd-highspeed = <0x7f 0x1a 0x9a 0x9a>;
 	broken-cd;
 	no-1-8-v;
 	no-sdio;
