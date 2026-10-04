@@ -106,14 +106,15 @@ static const struct ieee80211_txrx_stypes sc23xx_mgmt_stypes[NUM_NL80211_IFTYPES
 
 /*
  * System suspend/resume for WiFi is NOT driven through cfg80211's wiphy
- * .suspend/.resume. The wiphy's parent is a platform_device, while the SDIO
- * bus (sdiohal) hangs off an sdio_func under the mmc host, so the two are
- * unordered in the dpm list: cfg80211 would try to send the suspend command
- * *after* sdiohal has already quiesced the bus, and it times out (-110).
- *
- * Instead the suspend/resume handshake is issued from the sdiohal
+ * .suspend/.resume. The firmware sleep handshake is issued from the sdiohal
  * power_notify callback (see sc23xx_sdio_power_notify in sdio.c), which runs
  * inside sdiohal_suspend() while the bus is still up.
+ *
+ * The wiphy device IS reparented to the SDIO func device in the SDIO probe
+ * (sdio.c), so cfg80211's generic wiphy_suspend — which disconnects a
+ * connected interface — is serialized by the driver model to run BEFORE
+ * sdiohal_suspend quiesces the bus, instead of racing it from a parallel
+ * async dpm thread.
  */
 int sc23xx_set_suspend(struct sc23xx_dev *sdev, bool suspend)
 {

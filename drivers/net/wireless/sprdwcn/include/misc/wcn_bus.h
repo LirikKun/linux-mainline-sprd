@@ -19,6 +19,8 @@
 
 #define CHN_MAX_NUM 32
 
+struct device;
+
 enum wcn_hard_intf_type {
 	HW_TYPE_SDIO,
 	HW_TYPE_PCIE,
@@ -317,6 +319,16 @@ struct sprdwcn_bus_ops {
 
 	int (*driver_register)(void);
 	void (*driver_unregister)(void);
+
+	/*
+	 * struct device of the SDIO function carrying the WCN traffic
+	 * (sdio_func[1]->dev on SDIO, NULL on other buses). Clients that
+	 * register their own child devices (e.g. the wlan wiphy) reparent
+	 * them to it so the driver-model dpm list serializes their system
+	 * sleep before the bus-level suspend instead of racing it from
+	 * parallel async threads.
+	 */
+	struct device *(*get_func_dev)(void);
 
 	/* for wcn chip boot and download firmware */
 	int (*start_wcn)(enum wcn_sub_sys subsys);
@@ -682,6 +694,17 @@ void sprdwcn_bus_remove_card(void *wcn_dev)
 		return;
 
 	bus_ops->remove_card(wcn_dev);
+}
+
+static inline
+struct device *sprdwcn_bus_get_func_dev(void)
+{
+	struct sprdwcn_bus_ops *bus_ops = get_wcn_bus_ops();
+
+	if (!bus_ops || !bus_ops->get_func_dev)
+		return NULL;
+
+	return bus_ops->get_func_dev();
 }
 
 static inline

@@ -581,6 +581,26 @@ static int sc23xx_sdio_probe(struct platform_device *pdev)
 		goto err_stop;
 	}
 
+	/*
+	 * Reparent the wiphy under the SDIO function device before registering
+	 * it. cfg80211 drives wiphy_suspend from the dpm list; if the wiphy's
+	 * parent is the platform_device (the default), it and sdiohal_suspend
+	 * run in parallel async threads with no ordering, so a CONNECTED wlan0
+	 * issues its leave/disconnect firmware commands onto a bus sdiohal has
+	 * already quiesced ("Operate SDIO bus after suspend" -> -EBUSY abort).
+	 * Making the wiphy a child of the SDIO func puts it ahead of the bus in
+	 * the dpm suspend order (children sleep before parents), so cfg80211's
+	 * quiescing finishes while the bus is still up — the same arrangement
+	 * mainstream SDIO Wi-Fi drivers (brcmfmac, mwifiex) rely on. Harmless
+	 * if sdiohal exposes no func device yet: keep the platform parent.
+	 */
+	{
+		struct device *func_dev = sprdwcn_bus_get_func_dev();
+
+		if (func_dev)
+			set_wiphy_dev(priv->sdev.wiphy, func_dev);
+	}
+
 	ret = sc23xx_register_device(&priv->sdev);
 	if (ret)
 		goto err_stop;

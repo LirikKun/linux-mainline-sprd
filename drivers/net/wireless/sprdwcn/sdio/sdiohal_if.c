@@ -6,6 +6,8 @@
  * Abstract : This file is a implementation for wcn sdio hal function
  */
 
+#include <linux/mmc/sdio_func.h>
+
 #include "sdiohal.h"
 
 static int sdio_preinit(void)
@@ -150,6 +152,20 @@ static bool sdio_is_suspended(bool important)
 	return !sdiohal_is_resumed(important);
 }
 
+/* struct device of SDIO function 1 (the WCN data function). Clients use it
+ * to reparent their own devices under the bus function so the dpm list
+ * serializes their system sleep BEFORE sdiohal_suspend() quiesces the bus.
+ */
+static struct device *sdio_get_func_dev(void)
+{
+	struct sdiohal_data_t *p_data = sdiohal_get_data();
+
+	if (!p_data || !p_data->sdio_func[FUNC_1])
+		return NULL;
+
+	return &p_data->sdio_func[FUNC_1]->dev;
+}
+
 static struct sprdwcn_bus_ops sdiohal_bus_ops = {
 	.preinit = sdio_preinit,
 	.deinit = sdio_preexit,
@@ -169,6 +185,7 @@ static struct sprdwcn_bus_ops sdiohal_bus_ops = {
 	.get_carddump_status = sdio_get_carddump_status,
 	.set_carddump_status = sdio_set_carddump_status,
 	.get_rx_total_cnt = sdio_get_rx_total_cnt,
+	.get_func_dev = sdio_get_func_dev,
 
 	.runtime_get = sdio_runtime_get,
 	.runtime_put = sdio_runtime_put,
