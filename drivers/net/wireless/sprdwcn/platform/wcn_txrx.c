@@ -327,7 +327,15 @@ int mdbg_tx_cb(int channel, struct mbuf_t *head,
 		}
 	}
 
-	WCN_INFO("%s, chn:%d\n", __func__, channel);
+	/*
+	 * Heartbeat path: fires on every mdbg channel TX completion (~every
+	 * 5 s from the loopcheck keepalive). pr_info here floods any console
+	 * (the board runs console=tty0 with ignore_loglevel during bring-up,
+	 * so it scrolled the LCD continuously and drowned shutdown messages).
+	 * Debug level keeps it available via dynamic debug when actually
+	 * debugging the CP link.
+	 */
+	WCN_DBG("%s, chn:%d\n", __func__, channel);
 	/* PCIe buf is witebuf[], not kmalloc, no need to free */
 	sprdwcn_bus_list_free(channel, head, tail, num);
 

@@ -300,7 +300,9 @@ int mdbg_loopcheck_read(int channel, struct mbuf_t *head,
 		memcpy(mdbg_proc->loopcheck.buf, head->buf, head->len);
 		mdbg_proc->loopcheck.rcv_len = head->len;
 	}
-	WCN_INFO("rx:%s\n", (char *)(mdbg_proc->loopcheck.buf));
+	/* Heartbeat keepalive ack (~every 5 s): debug level, same rationale
+	 * as mdbg_tx_cb in wcn_txrx.c — pr_info here floods console=tty0. */
+	WCN_DBG("rx:%s\n", (char *)(mdbg_proc->loopcheck.buf));
 	mdbg_proc->fail_count = 0;
 	complete(&mdbg_proc->loopcheck.completed);
 	complete_kernel_loopcheck();

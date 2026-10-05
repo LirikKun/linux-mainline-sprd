@@ -406,9 +406,13 @@
 	};
 };
 
-&led1 {
-	linux,default-trigger = "default-on";
-};
+/*
+ * sc27xx BLTC LEDs (dtsi labels: led0=red, led1=green, led2=blue).
+ * No default trigger: the charge indicator is driven by rg405m-charged
+ * (red = charging, green = full, off = on battery). The old led1
+ * default-on trigger kept the physical charge LED lit permanently
+ * regardless of cable state — that was the "always red" indicator.
+ */
 
 &sc2730_fgu {
 	status = "okay";
