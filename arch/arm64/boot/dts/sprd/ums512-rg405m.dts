@@ -748,10 +748,15 @@
 		ti,weak-battery-voltage = <3400>;
 		ti,battery-regulation-voltage = <4300>;
 		/*
-		 * ~0.43C of the 4200 mAh pack, deliberately below stock's
-		 * 2000 mA until proper JEITA thermal limiting exists.
+		 * 2000 mA = the stock Android rate, ~0.47C of the 4200 mAh
+		 * pack. Was held at 1240 mA during bring-up pending a JEITA
+		 * taper; that now exists in two layers (userspace
+		 * rg405m-charged: 620 mA + 4.10 V above 45 C, and the
+		 * in-kernel 0..60 C hard block), so the stock rate is safe.
+		 * Charger must be >= 5 V / 2 A — the AW32257 has no hardware
+		 * input current limit.
 		 */
-		ti,charge-current = <1240>;
+		ti,charge-current = <2000>;
 		ti,termination-current = <200>;
 		ti,resistor-sense = <33>;
 
