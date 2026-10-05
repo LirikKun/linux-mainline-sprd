@@ -44,6 +44,17 @@
 #define MEM_PD_ERR -3
 #define CP_NO_MEM_PD_TIMEROUT 2000
 #define CP_TIMEROUT 30000
+/*
+ * BT close: the SC2355 CP firmware on the RG405M never raises the BT_CLOSE
+ * interrupt that completes bt_close_completion, so waiting the full
+ * CP_TIMEROUT here just stalls every bluetoothd stop / poweroff by 30 s and
+ * then takes the same error path ("bt delete fail") anyway. Verified on
+ * device across three separate boots (rfkill block, systemctl stop, shutdown):
+ * the timeout always expires, the chip power-off continues correctly, and a
+ * subsequent BT open works ("bt opened, do nothing"). 2 s keeps the wait
+ * meaningful for firmwares that do ack, without the 30 s stall.
+ */
+#define CP_BT_CLOSE_TIMEROUT 2000
 /* time out in waiting wifi to come up */
 #define MEM_PD_UNIT_SIZE 0X8000/* 32k */
 #define SDIO_CP_BASE_ADD 0X40400000/* 32k */
@@ -679,7 +690,7 @@ int mem_pd_mgr(enum wcn_sub_sys subsys, int val)
 			}
 			if (wait_for_completion_timeout(
 				&(mem_pd.bt_close_completion),
-			msecs_to_jiffies(CP_TIMEROUT))
+				msecs_to_jiffies(CP_BT_CLOSE_TIMEROUT))
 				<= 0) {
 				WCN_INFO("bt delete fail\n");
 				goto mem_pd_err;
