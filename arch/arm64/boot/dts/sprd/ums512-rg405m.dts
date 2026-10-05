@@ -661,6 +661,13 @@
 &usb {
 	status = "okay";
 	dr_mode = "otg";
+	/*
+	 * Host-mode VBUS comes from the AW32257's OTG boost, exposed by the
+	 * charger driver as the usb-otg-vbus regulator. The sprd musb glue
+	 * enables it on USB_ROLE_HOST and disables it when leaving the role
+	 * (which also re-enables charging, see bq2415x_vbus_disable).
+	 */
+	vbus-supply = <&usb_otg_vbus>;
 };
 
 &pmic_typec_pd {

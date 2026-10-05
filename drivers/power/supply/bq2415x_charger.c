@@ -868,8 +868,29 @@ static int bq2415x_vbus_enable(struct regulator_dev *rdev)
 static int bq2415x_vbus_disable(struct regulator_dev *rdev)
 {
 	struct bq2415x_device *bq = rdev_get_drvdata(rdev);
+	int ret;
 
-	return bq2415x_set_mode(bq, BQ2415X_MODE_OFF);
+	/*
+	 * Leaving host/boost: drop the boost but put the charger back the way
+	 * probe found it. Plain MODE_OFF would disable charging permanently —
+	 * nothing re-runs bq2415x_set_mode() afterwards, so a host->device
+	 * role flip would silently stop all charging until reboot.
+	 */
+	ret = bq2415x_exec_command(bq, BQ2415X_BOOST_MODE_DISABLE);
+	if (ret < 0)
+		return ret;
+
+	ret = bq2415x_exec_command(bq, BQ2415X_CHARGER_ENABLE);
+	if (ret < 0)
+		return ret;
+
+	/* Bookkeeping matches the post-probe state: "off" is what sysfs
+	 * shows while the chip charges with its DT init_data values (the
+	 * driver never runs set_mode() without automode). */
+	bq->mode = BQ2415X_MODE_OFF;
+	sysfs_notify(&bq->charger->dev.kobj, NULL, "mode");
+
+	return 0;
 }
 
 static int bq2415x_vbus_is_enabled(struct regulator_dev *rdev)
