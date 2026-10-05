@@ -1037,7 +1037,25 @@ static void bq2415x_timer_error(struct bq2415x_device *bq, const char *msg)
 	if (bq->automode > 0)
 		bq->automode = 0;
 	bq2415x_set_mode(bq, BQ2415X_MODE_OFF);
-	bq2415x_set_autotimer(bq, 0);
+
+	/*
+	 * Disable the auto-timer WITHOUT bq2415x_set_autotimer(bq, 0): that
+	 * helper calls cancel_delayed_work_sync(&bq->work), and this function
+	 * only ever runs from inside bq2415x_timer_work() itself, on the
+	 * shared "events" workqueue. cancel_*_sync() blocks until the running
+	 * instance finishes -- i.e. waits on itself -- so it self-deadlocks.
+	 * The wedged worker pins the events queue forever, and any later
+	 * flush_scheduled_work()/device teardown during poweroff then hangs
+	 * with it (observed: "Powering off" stalls, sdiohal/hci kworkers and
+	 * this bq2415x_timer_work all left in D-state, system never powers
+	 * off). Every caller returns immediately after this and never
+	 * re-arms the timer, so clearing the flag under the mutex is enough
+	 * to stop it -- there is nothing pending to cancel. The external
+	 * sysfs "off" path is unaffected and still uses the full helper.
+	 */
+	mutex_lock(&bq2415x_timer_mutex);
+	bq->autotimer = 0;
+	mutex_unlock(&bq2415x_timer_mutex);
 }
 
 /* delayed work function for auto resetting chip timer */

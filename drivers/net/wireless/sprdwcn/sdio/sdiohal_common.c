@@ -235,9 +235,15 @@ void sdiohal_tx_down(void)
 	 * and no wake source across this, which is true at the top of
 	 * sdiohal_tx_thread()'s loop. Staying UNINTERRUPTIBLE means a signal
 	 * cannot make this return either, so the result is always 0.
+	 *
+	 * TASK_NOLOAD: this is an unbounded idle wait for the next TX batch,
+	 * not a stuck task -- without NOLOAD the hung-task detector reports
+	 * "sdiohal_tx_thre blocked for more than 120 seconds" on every healthy
+	 * idle system (state D), drowning out real deadlocks in the noise.
 	 */
 	wait_for_completion_state(&p_data->tx_completed,
-				  TASK_UNINTERRUPTIBLE | TASK_FREEZABLE);
+				  TASK_UNINTERRUPTIBLE | TASK_FREEZABLE |
+				  TASK_NOLOAD);
 }
 
 void sdiohal_tx_up(void)
@@ -251,7 +257,11 @@ void sdiohal_rx_down(void)
 {
 	struct sdiohal_data_t *p_data = sdiohal_get_data();
 
-	wait_for_completion(&p_data->rx_completed);
+	/* Idle wait for the next RX batch: TASK_NOLOAD keeps the hung-task
+	 * detector from reporting this healthy idle kthread as blocked (it
+	 * parks here in state D for the entire uptime with no traffic). */
+	wait_for_completion_state(&p_data->rx_completed,
+				  TASK_UNINTERRUPTIBLE | TASK_NOLOAD);
 }
 
 void sdiohal_rx_up(void)

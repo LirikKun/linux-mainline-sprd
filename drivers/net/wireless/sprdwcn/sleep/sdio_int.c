@@ -88,7 +88,13 @@ static int pub_int_handle_thread(void *data)
 
 	set_user_nice(current, -20);
 	while (!kthread_should_stop()) {
-		wait_for_completion(&(sdio_int.pub_int_completion));
+		/* Idle wait for the next pub-int; TASK_NOLOAD keeps the
+		 * hung-task detector off this healthy idle kthread (it parks
+		 * here in state D whenever no interrupt is pending). The
+		 * deinit path completes this before kthread_stop(), so the
+		 * wake/stop behaviour is unchanged. */
+		wait_for_completion_state(&(sdio_int.pub_int_completion),
+					  TASK_UNINTERRUPTIBLE | TASK_NOLOAD);
 
 		ret = sprdwcn_bus_aon_readb(sdio_int.pub_int_sts0,
 			&(pub_int_sts0.reg));
