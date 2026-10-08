@@ -268,6 +268,42 @@ static int audcp_boot_probe(struct platform_device *pdev)
 	return 0;
 }
 
+/*
+ * System sleep: force the AGDSP into hardware deep sleep while the AP is
+ * suspended. On stock, the vendor sleep framework negotiates DSP sleep over
+ * SIPC (audcp_pmu_sleep_ctrl is only ever *read* by agdsp_access.c - nothing
+ * in the vendor audio stack asserts it); mainline has no such framework, so
+ * without this the DSP stays clocked and holds its power domain up for the
+ * whole suspend: measured ~22 mA extra drain (113 -> 83 mA sleep floor on
+ * RG405M, 30-min RTC-suspend A/B via charge_now coulomb counter).
+ *
+ * Asserting CTRL_DEEP_SLEEP (PMU_APB 0xcc bit19 per the DTS 'deepsleep'
+ * property) is the same force bit the vendor boot path clears in
+ * audcp_boot_start(); userspace is frozen by the time this runs, so no new
+ * DSP work can start. The hardware then reports bit5 (the
+ * audcp_pmu_sleep_ctrl status mask in agdsp_access) - the same bit stock
+ * shows - and audio must be re-checked after resume (DSP SRAM should be
+ * retained, but this needs on-device verification).
+ */
+static int audcp_boot_suspend(struct device *dev)
+{
+	struct audcp_boot *b = dev_get_drvdata(dev);
+
+	audcp_set(b, CTRL_DEEP_SLEEP, true);
+	return 0;
+}
+
+static int audcp_boot_resume(struct device *dev)
+{
+	struct audcp_boot *b = dev_get_drvdata(dev);
+
+	audcp_set(b, CTRL_DEEP_SLEEP, false);
+	return 0;
+}
+
+static DEFINE_SIMPLE_DEV_PM_OPS(audcp_boot_pm_ops,
+				audcp_boot_suspend, audcp_boot_resume);
+
 static const struct of_device_id audcp_boot_match[] = {
 	{ .compatible = "sprd,ums512-audcp-boot" },
 	{ }
@@ -279,6 +315,7 @@ static struct platform_driver audcp_boot_driver = {
 	.driver = {
 		.name = "sprd-audcp-boot",
 		.of_match_table = audcp_boot_match,
+		.pm = pm_sleep_ptr(&audcp_boot_pm_ops),
 	},
 };
 module_platform_driver(audcp_boot_driver);
