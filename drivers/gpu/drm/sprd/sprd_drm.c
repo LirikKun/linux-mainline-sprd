@@ -218,6 +218,40 @@ static void sprd_drm_shutdown(struct platform_device *pdev)
 	drm_atomic_helper_shutdown(drm);
 }
 
+/*
+ * System suspend/resume: without these the whole display chain (DPU
+ * scanout, DSI HS clocks, panel) stays alive across "mem" sleep -- the
+ * panel is never sent DCS display-off/sleep-in and the 'mm' genpd never
+ * powers down. drm_mode_config_helper_suspend() performs a full modeset
+ * disable (encoder/CRTC off, panel unprepare -> DCS 0x28/0x10) and
+ * resume restores the previous atomic state (fbdev console redraws).
+ * Same pattern as mtk_drm_drv.c.
+ */
+static int sprd_drm_pm_suspend(struct device *dev)
+{
+	struct drm_device *drm = dev_get_drvdata(dev);
+
+	if (!drm)
+		return 0;
+
+	return drm_mode_config_helper_suspend(drm);
+}
+
+static int sprd_drm_pm_resume(struct device *dev)
+{
+	struct drm_device *drm = dev_get_drvdata(dev);
+
+	if (!drm)
+		return 0;
+
+	drm_mode_config_helper_resume(drm);
+
+	return 0;
+}
+
+static DEFINE_SIMPLE_DEV_PM_OPS(sprd_drm_pm_ops,
+				sprd_drm_pm_suspend, sprd_drm_pm_resume);
+
 static const struct of_device_id drm_match_table[] = {
 	{ .compatible = "sprd,display-subsystem", },
 	{ /* sentinel */ },
@@ -231,6 +265,7 @@ static struct platform_driver sprd_drm_driver = {
 	.driver = {
 		.name = "sprd-drm-drv",
 		.of_match_table = drm_match_table,
+		.pm = pm_sleep_ptr(&sprd_drm_pm_ops),
 	},
 };
 
