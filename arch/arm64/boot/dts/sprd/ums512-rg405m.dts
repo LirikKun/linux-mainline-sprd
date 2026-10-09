@@ -1040,3 +1040,18 @@
 		line-name = "stick-rail-ry";
 	};
 };
+
+/*
+ * pm_sys (CM4 sensor-hub/DFS core): enabled together with the CM4_DEFER SPL
+ * (CONFIG_SPL_FW_CM4_DEFER drops the AON CM4_SYS_SOFT_RST TZPC write-protect,
+ * so the rproc's reset release actually lands). pm_sys runs the vendor deep
+ * sleep negotiation (DDR self-refresh etc.) - without it Linux sleeps at
+ * ~86 mA vs stock's ~21 mA. Firmware: sprd/pm_bootcode.bin (the u-boot
+ * sp_loader stub) + sprd/pm_sys.bin (stock pm_sys_a partition image), both in
+ * the initramfs overlay; the driver is built in and probes early.
+ * Requires the CM4_DEFER SPL on eMMC boot0/boot1 - with a stock/locked SPL
+ * the reset write is ignored and this would report a phantom "running".
+ */
+&pmsys {
+	status = "okay";
+};

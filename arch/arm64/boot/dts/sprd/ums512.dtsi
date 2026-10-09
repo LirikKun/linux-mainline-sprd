@@ -542,7 +542,7 @@
 		 * see i2c-sprd-hw.c). Re-enable together with the SPL defer if
 		 * the sensor hub is ever wired up.
 		 */
-		pmsys@800000 {
+		pmsys: pmsys@800000 {
 			compatible = "sprd,ums512-pmsys";
 			status = "disabled";
 			reg = <0x0 0x800000 0x0 0x1000>;
