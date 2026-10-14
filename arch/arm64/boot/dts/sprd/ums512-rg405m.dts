@@ -776,6 +776,16 @@
  * voltage enable hw fail" -> card removed). no-1-8-v + 25 MHz caps it at
  * high-speed 3.3 V; broken-cd treats the card as always present (the boot
  * rootfs lives on it — a spurious removal would be fatal).
+ *
+ * UHS RETESTED AND REFUTED ON MAINLINE (2026-10-14): enabling sd-uhs-sdr50/
+ * sdr104 with the stock PHY delays and no max-frequency cap (vqmmc =
+ * vddsdio LDO, 1.2-3.75 V, same controller runs the WCN chip at SDR104/1.8 V
+ * on sdio1) makes the card fail initialization at the 1.8 V switch — the
+ * device does not boot at all (rootfs never mounts, no logs written). The
+ * stock kernel's "hw fail" is therefore a board-level limitation of this
+ * slot's 1.8 V path, not a vendor-driver artifact. 50 MHz high-speed at
+ * 3.3 V (~22 MB/s measured) is this slot's ceiling. Do not re-enable UHS
+ * without a hardware-level fix (level shifter / LDO investigation).
  */
 &sdio0 {
 	status = "okay";
