@@ -15,9 +15,27 @@
  */
 
 #include <linux/debugfs.h>
+#include <linux/delay.h>
+#include <linux/of.h>
 #include <linux/slab.h>
 
 #include "sprd_sipc.h"
+
+/*
+ * pm_sys DFS-task master commands (vendor enum dvfs_master_cmd). The vendor
+ * sprd_ddr_dvfs_core driver sends ENABLE then AUTO_ENABLE over this channel
+ * once at boot (dvfs_smsg_thread); without them the firmware DFS task stays
+ * in its "dfs is disable!" state, DDR never enters self-refresh and the AP
+ * deep-sleep path is gated off. We replicate just that arming handshake here
+ * (no devfreq/governor port) so sleep_phy can negotiate retention.
+ */
+#define DVFS_CMD_ENABLE		0x0300
+#define DVFS_CMD_DISABLE	0x0305
+#define DVFS_CMD_AUTO_ENABLE	0x0310
+#define DVFS_CMD_AUTO_DISABLE	0x0315
+#define DVFS_CMD_INQ_STATUS	0x050A
+/* pm_sys DFS-task response flags (vendor enum dvfs_slave_cmd) */
+#define DVFS_RET_DISABLE	0x0005
 
 struct sipc_dfs {
 	struct sipc_channel *channel;
@@ -47,9 +65,75 @@ static void sipc_dfs_rx(struct sipc_channel *channel, u8 type, u16 cmd, u32 valu
 	complete(&dfs->rsp_done);
 }
 
+/*
+ * Send one DFS command and wait for the pm_sys reply. Returns the reply
+ * flag (vendor dvfs_slave_cmd) on success, or a negative errno.
+ */
+static int sipc_dfs_transact(struct sipc_dfs *dfs, u16 cmd, u32 value,
+			     unsigned int timeout_ms)
+{
+	int ret;
+
+	reinit_completion(&dfs->rsp_done);
+	ret = sipc_send(dfs->channel, SMSG_TYPE_DFS, cmd, value);
+	if (ret)
+		return ret;
+
+	if (!wait_for_completion_timeout(&dfs->rsp_done,
+					 msecs_to_jiffies(timeout_ms)))
+		return -ETIMEDOUT;
+
+	return dfs->rsp_cmd;
+}
+
+/*
+ * Arm the firmware DFS task, mirroring the vendor boot sequence:
+ * ENABLE, then AUTO_ENABLE once ENABLE reports success. Called from the
+ * channel open path (workqueue context, may sleep) and gated by the
+ * "sprd,dfs-arm-on-open" DT property so boards that run their own DDR
+ * DVFS driver (or that want the task left alone) are unaffected.
+ */
+static void sipc_dfs_arm(struct sipc_dfs *dfs)
+{
+	int flag;
+
+	flag = sipc_dfs_transact(dfs, DVFS_CMD_INQ_STATUS, 0, 500);
+	dev_info(dfs->channel->parent,
+		 "dfs: pre-arm INQ_STATUS -> %sflag 0x%04x value 0x%08x\n",
+		 flag < 0 ? "timeout, " : "",
+		 flag < 0 ? 0xffff : flag, dfs->rsp_value);
+
+	flag = sipc_dfs_transact(dfs, DVFS_CMD_ENABLE, 0, 2000);
+	if (flag < 0) {
+		dev_warn(dfs->channel->parent,
+			 "dfs: ENABLE failed (%d), not arming\n", flag);
+		return;
+	}
+	dev_info(dfs->channel->parent,
+		 "dfs: ENABLE -> flag 0x%04x value 0x%08x\n", flag, dfs->rsp_value);
+
+	msleep(100);
+
+	flag = sipc_dfs_transact(dfs, DVFS_CMD_AUTO_ENABLE, 0, 2000);
+	if (flag < 0) {
+		dev_warn(dfs->channel->parent,
+			 "dfs: AUTO_ENABLE failed (%d)\n", flag);
+		return;
+	}
+	dev_info(dfs->channel->parent,
+		 "dfs: AUTO_ENABLE -> flag 0x%04x value 0x%08x (DFS task armed)\n",
+		 flag, dfs->rsp_value);
+}
+
 static int sipc_dfs_open(struct sipc_channel *channel)
 {
+	struct sipc_dfs *dfs = channel->priv;
+
 	dev_info(channel->parent, "dfs channel %d: remote opened\n", channel->id);
+
+	if (of_property_read_bool(channel->node, "sprd,dfs-arm-on-open"))
+		sipc_dfs_arm(dfs);
+
 	return 0;
 }
 
