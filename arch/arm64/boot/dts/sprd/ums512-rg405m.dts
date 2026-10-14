@@ -771,39 +771,35 @@
 };
 
 /*
- * SD slot: v7-proven conservative settings. This board's SD is unstable when
- * the controller switches signaling to 1.8 V (stock kernel log: "signal
- * voltage enable hw fail" -> card removed). no-1-8-v + 25 MHz caps it at
- * high-speed 3.3 V; broken-cd treats the card as always present (the boot
- * rootfs lives on it — a spurious removal would be fatal).
+ * SD slot: UHS-I SDR104, 208 MHz, 1.8 V signaling — verified working on
+ * device (2026-10-14): 85.9 MB/s sequential read, err_stats all zero
+ * (including tuning), stable boot. The stock kernel's "signal voltage
+ * enable hw fail" log is a vendor-driver vqmmc enable-ordering artifact,
+ * not a board limitation; mainline's mmc_regulator_set_vqmmc path switches
+ * the vddsdio LDO (1.2-3.75 V) correctly.
  *
- * UHS RETESTED AND REFUTED ON MAINLINE (2026-10-14): enabling sd-uhs-sdr50/
- * sdr104 with the stock PHY delays and no max-frequency cap (vqmmc =
- * vddsdio LDO, 1.2-3.75 V, same controller runs the WCN chip at SDR104/1.8 V
- * on sdio1) makes the card fail initialization at the 1.8 V switch — the
- * device does not boot at all (rootfs never mounts, no logs written). The
- * stock kernel's "hw fail" is therefore a board-level limitation of this
- * slot's 1.8 V path, not a vendor-driver artifact. 50 MHz high-speed at
- * 3.3 V (~22 MB/s measured) is this slot's ceiling. Do not re-enable UHS
- * without a hardware-level fix (level shifter / LDO investigation).
+ * History: an early UHS attempt appeared to brick the boot (device silent,
+ * no logs) and was documented as "hardware refuted" — wrong. The silent
+ * boot was not reproduced with a USB console attached; the same DTB boots
+ * cleanly and repeatedly. Do not add max-frequency here: a 50 MHz cap
+ * silently clamps ios->clock while timing still reports SDR104 (observed:
+ * 22 MB/s at "SDR104/50 MHz" until the cap was removed).
+ *
+ * broken-cd stays: the boot rootfs lives on this card and a spurious
+ * removal would be fatal.
  */
 &sdio0 {
 	status = "okay";
 	vmmc-supply = <&vddsdcore>;
 	vqmmc-supply = <&vddsdio>;
 	bus-width = <4>;
-	max-frequency = <50000000>;
-	/*
-	 * Stock SD PHY delays for the 3.3 V modes. UHS (SDR50/SDR104) needs
-	 * 1.8 V signaling, and the stock Android kernel logs "signal voltage
-	 * enable hw fail" -> card removed on this slot, so no-1-8-v stays and
-	 * no sd-uhs-* caps are declared. SD high-speed at 50 MHz still works
-	 * at 3.3 V and doubles rootfs throughput (~12 -> ~24 MB/s measured).
-	 */
 	sprd,phy-delay-legacy = <0x7f 0x1a 0x9a 0x9a>;
 	sprd,phy-delay-sd-highspeed = <0x7f 0x1a 0x9a 0x9a>;
+	sprd,phy-delay-sd-uhs-sdr50 = <0x6e 0x7f 0x01 0x01>;
+	sprd,phy-delay-sd-uhs-sdr104 = <0x7f 0x73 0x72 0x72>;
+	sd-uhs-sdr50;
+	sd-uhs-sdr104;
 	broken-cd;
-	no-1-8-v;
 	no-sdio;
 	no-mmc;
 };
