@@ -238,6 +238,8 @@ static int bq2415x_i2c_read(struct bq2415x_device *bq, u8 reg)
 
 	if (ret < 0)
 		return ret;
+	if (ret != ARRAY_SIZE(msg))
+		return -EIO;
 
 	return val;
 }
